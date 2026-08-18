@@ -18,6 +18,11 @@ const KEY_PREFS   = 'loper_prefs';
 const KEY_SEEDED  = 'loper_seeded';
 const MAX_TEXT    = 300;
 
+/* 無限スクロールで一度に追加する件数と、
+   末尾がこの距離まで近づいたら次を読み込む（px） */
+const PAGE_SIZE    = 10;
+const LOAD_MARGIN  = 300;
+
 const AVATAR_COLORS = [
   '#ffffff', '#6fd3e2', '#35d43f', '#d6c62c',
   '#f98080', '#c79bf0', '#8fa8ff', '#ffb26b'
@@ -28,6 +33,7 @@ let notices = [];
 let profile = { name: 'name', color: '#ffffff' };
 let prefs   = { showAds: true };
 let currentView = 'home';
+let feedShown   = 0;   /* フィードに描画済みの件数 */
 
 const els = {};
 
@@ -43,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   applyProfile();
   applyPrefs();
   renderFeed();
+  setupInfiniteScroll();
   renderNotices();
 });
 
@@ -56,6 +63,7 @@ function cacheElements() {
   els.textInput      = document.getElementById('ideaTextInput');
   els.charCounter    = document.getElementById('charCounter');
   els.feed           = document.getElementById('feed');
+  els.feedEnd        = document.getElementById('feedEnd');
   els.searchInput    = document.getElementById('searchInput');
   els.searchResults  = document.getElementById('searchResults');
   els.searchHint     = document.getElementById('searchHint');
@@ -125,37 +133,112 @@ function normalizePost(post) {
   };
 }
 
-/* ---- ダミー投稿 ---- */
-function seedPosts() {
-  /* [名前, 色, 本文, 日時, 完成, 開発中, いいね, コメント] */
-  const data = [
-    ['ルナ｜個人開発', '#ffffff', '最強のローカルLLMほしいです', '2026年08月17日 21:40', 1, 4, 27,
-      [['こう', '#6fd3e2', '量子化すればノートPCでも動きますよ'],
-       ['たかし', '#ffffff', 'メモリどれくらい要りますか？']]],
-    ['たかし', '#ffffff', '誰かUnrealのを日本語表記にするやつ作ってくれ', '2026年08月17日 18:12', 0, 6, 41,
-      [['ルナ｜個人開発', '#ffffff', 'ブループリントのノード名だけでも需要ありそう']]],
-    ['みなと', '#8fa8ff', 'Discordの通知をまとめて要約してくれるBotがほしい。\n未読が溜まると追うのが大変なので。', '2026年08月16日 23:05', 3, 2, 18, []],
-    ['あおい', '#c79bf0', 'Gitのコミットメッセージを自動で日本語にするCLIツール', '2026年08月16日 12:30', 2, 1, 12,
-      [['みなと', '#8fa8ff', 'それ普通にほしい']]],
-    ['けんと', '#ffb26b', 'スマホで撮ったホワイトボードの写真を、きれいなMarkdownに変換するアプリ', '2026年08月15日 19:48', 5, 3, 33, []],
-    ['さくら', '#f98080', '積みゲー管理アプリ。積んだ日数とクリア率が見えると罪悪感で進むと思う。', '2026年08月14日 09:15', 1, 0, 9, []]
-  ];
+/* ================= ダミー投稿 =================
+   本番では Firestore から取得する部分。
+   投稿者の名前・色は NAMES から番号で参照する。         */
 
-  return data.map((row, i) => ({
-    id:    1000 + (data.length - i),
-    name:  row[0],
-    color: row[1],
-    text:  row[2],
-    date:  row[3],
-    done:  row[4],
-    dev:   row[5],
-    like:  row[6],
-    myDone: false,
-    myDev:  false,
-    myLike: false,
-    comments: row[7].map((c) => ({ name: c[0], color: c[1], text: c[2] })),
-    mine:  false
-  }));
+const NAMES = [
+  ['ルナ｜個人開発', '#ffffff'], ['たかし', '#ffffff'],     ['みなと', '#8fa8ff'],
+  ['あおい', '#c79bf0'],        ['けんと', '#ffb26b'],     ['さくら', '#f98080'],
+  ['こう', '#6fd3e2'],          ['ゆい', '#35d43f'],       ['そうた', '#d6c62c'],
+  ['りん', '#ff4d63'],          ['はると', '#8fa8ff'],     ['なぎ', '#ffffff'],
+  ['しおり', '#c79bf0'],        ['とうま', '#ffb26b'],     ['めい', '#f98080'],
+  ['かえで', '#35d43f'],        ['ゆうき', '#6fd3e2'],     ['あさひ', '#8fa8ff'],
+  ['のぞみ', '#d6c62c'],        ['ちひろ', '#c79bf0']
+];
+
+/* [投稿者, 本文, 何時間前, 完成, 開発中, いいね, コメント] */
+const SEED_DATA = [
+  [0, '最強のローカルLLMほしいです', 0, 1, 4, 27,
+    [[6, '量子化すればノートPCでも動きますよ'], [1, 'メモリどれくらい要りますか？']]],
+  [1, '誰かUnrealのを日本語表記にするやつ作ってくれ', 3, 0, 6, 41,
+    [[0, 'ブループリントのノード名だけでも需要ありそう']]],
+  [2, 'Discordの通知をまとめて要約してくれるBotがほしい。\n未読が溜まると追うのが大変なので。', 22, 3, 2, 18, []],
+  [3, 'Gitのコミットメッセージを自動で日本語にするCLIツール', 33, 2, 1, 12,
+    [[2, 'それ普通にほしい']]],
+  [4, 'スマホで撮ったホワイトボードの写真を、きれいなMarkdownに変換するアプリ', 50, 5, 3, 33, []],
+  [5, '積みゲー管理アプリ。積んだ日数とクリア率が見えると罪悪感で進むと思う。', 84, 1, 0, 9, []],
+  [7, 'Unityで買ったまま使ってないアセットを一覧にしてくれるツールがほしい', 96, 2, 5, 38,
+    [[13, '課金額まで出ると泣きそう']]],
+  [8, 'ドット絵を1枚描いたら、歩行アニメのコマを自動生成してくれるやつ', 104, 4, 7, 62, []],
+  [9, '個人開発の進捗を晒すだけのSNSが欲しい。完成しなくても許される場所。', 112, 1, 3, 55,
+    [[0, 'それこのサイトでは？'], [9, '言われてみれば']]],
+  [10, '動画に音声を入れると、字幕とテロップを自動で付けてくれる編集ツール', 126, 6, 4, 47, []],
+  [11, 'タブが増えすぎたときに自動でグループ分けしてくれるブラウザ拡張', 138, 8, 2, 29, []],
+  [12, '学生向けの時間割アプリ。既存のは広告が多すぎて使う気になれない。', 150, 3, 6, 44,
+    [[17, '通知だけでいいから軽いのが欲しい']]],
+  [13, 'ゲーム実況の録画から、盛り上がった場面だけ切り抜いてくれるAI', 163, 0, 9, 71, []],
+  [14, 'VRChatのワールドをスマホから下見できるサイト', 175, 1, 2, 23, []],
+  [15, '締め切りを入れると、勝手に逆算してタスクを刻んでくれるアプリ', 188, 5, 3, 36, []],
+  [16, 'RPGツクールの無料素材をまとめて検索できるサイトがほしい', 199, 2, 4, 31,
+    [[4, 'ライセンス表記でも絞れると神']]],
+  [17, '書いたコードの解説を音声で読み上げてくれるやつ。通学中に復習したい。', 212, 1, 1, 19, []],
+  [18, 'レシートを撮るだけで全部入力してくれる家計簿アプリ', 224, 7, 3, 40, []],
+  [19, 'Steamのウィッシュリストが値下げされたら通知してくれるやつ、誰か作ってない？', 236, 9, 1, 52,
+    [[8, '公式にもあるけど通知が来ないんですよね']]],
+  [0, '3Dモデルを読み込むと、自動でポリゴン数を減らしてくれるWebツール', 249, 3, 5, 34, []],
+  [2, '個人開発したアプリを晒して感想をもらえる場所がほしい', 261, 2, 2, 26, []],
+  [4, '寝落ちを検知して勝手に止まってくれる動画プレイヤー作ってほしい', 273, 4, 2, 58,
+    [[15, '毎朝バッテリーが死んでるので切実']]],
+  [6, '環境構築の手順を書くと、そのままDockerfileにしてくれるやつ', 286, 6, 4, 37, []],
+  [8, 'ゲームジャム用に、お題をランダムで出してくれるサイト', 298, 11, 2, 45, []],
+  [10, '読んだ技術書の内容をカード化して、あとで復習できるアプリ', 311, 3, 3, 28, []],
+  [12, '配信のコメントを翻訳して読み上げてくれるツール', 323, 2, 6, 39, []],
+  [14, '画像からフォントを判別してくれるサイト、日本語対応のやつ', 336, 5, 1, 33, []],
+  [16, '自分が書いたコード量の成長がグラフで見えるやつ', 348, 8, 2, 24, []],
+  [18, 'Blenderのショートカットを練習できるゲーム', 361, 1, 4, 42,
+    [[3, 'タイピングゲームみたいな感じで欲しい']]],
+  [1, '一人用のスクラム管理アプリ。チーム用のは重すぎる。', 373, 4, 3, 30, []],
+  [3, '音ゲーの譜面を自作して共有できるサイト', 386, 2, 7, 49, []],
+  [5, '通学中に見るだけで英単語を覚えられる縦型動画を、自動生成するやつ', 398, 0, 3, 27, []],
+  [7, '絵の練習記録を残して、上達が目に見えるアプリ', 411, 6, 2, 35,
+    [[13, '比較スライダーがあると嬉しい']]],
+  [9, '誰かMinecraftの建築を自動で採寸してくれるMod作って', 423, 1, 1, 21, []],
+  [11, '部屋を撮ると家具の配置を提案してくれるアプリ', 436, 3, 4, 32, []],
+  [13, 'アイデアを話すだけで仕様書にしてくれるツール', 448, 2, 8, 66, []],
+  [15, 'GitHubのIssueをカンバンで見られる、とにかく軽いサイト', 461, 7, 2, 38, []],
+  [17, '効果音を口で言うと、近い音を探してくれる検索エンジン', 473, 1, 5, 57,
+    [[5, '「ドゥーン」で検索したい']]],
+  [19, 'サークルのシフト調整、LINEだけで完結してほしい', 486, 5, 1, 22, []],
+  [0, 'ノベルゲームのシナリオを分岐図で書けるエディタ', 498, 4, 6, 51, []],
+  [2, '自分の声を学習して、ナレーションにしてくれるやつ', 511, 2, 3, 43, []],
+  [4, 'プログラミング初心者用の、エラーメッセージ翻訳サイト', 523, 12, 2, 68,
+    [[16, 'これ本当に最初の壁だと思う']]],
+  [6, '撮りためた写真から、自動でVlogに繋いでくれるアプリ', 536, 3, 4, 29, []],
+  [8, '個人開発の収益を晒し合う掲示板', 548, 6, 1, 25, []],
+  [10, 'ゲームのセーブデータをクラウド同期する汎用ツール', 561, 2, 3, 31, []],
+  [12, '手書きの数式を読み取ってLaTeXにしてくれるやつ', 573, 9, 2, 46, []],
+  [14, '積んだ技術書を管理して、読む順番まで提案してくれるアプリ', 586, 1, 2, 20, []],
+  [16, '日本語のフリーフォントだけ集めたサイトが欲しい', 598, 4, 1, 37,
+    [[11, '商用可かどうかで絞れると助かる']]]
+];
+
+function seedPosts() {
+  /* 「今」に依存しない基準日時から、各投稿の日時を逆算する */
+  const base = new Date(2026, 7, 17, 21, 40);
+
+  return SEED_DATA.map((row, i) => {
+    const author = NAMES[row[0]];
+    return {
+      id:     2000 + (SEED_DATA.length - i),
+      name:   author[0],
+      color:  author[1],
+      text:   row[1],
+      date:   formatDate(new Date(base.getTime() - row[2] * 3600000)),
+      done:   row[3],
+      dev:    row[4],
+      like:   row[5],
+      myDone: false,
+      myDev:  false,
+      myLike: false,
+      comments: row[6].map((c) => ({
+        name:  NAMES[c[0]][0],
+        color: NAMES[c[0]][1],
+        text:  c[1]
+      })),
+      mine: false
+    };
+  });
 }
 
 const savePosts   = () => write(KEY_POSTS, posts);
@@ -212,6 +295,7 @@ function showView(view) {
      まったくスクロールしないことがあるため使わない。 */
   window.scrollTo(0, 0);
 
+  if (view === 'home')   { fillFeed(); }
   if (view === 'notice') { markNoticesRead(); }
   if (view === 'search') { els.searchInput.focus(); }
 }
@@ -274,10 +358,84 @@ function resetCounter() {
   els.charCounter.className = 'char-counter';
 }
 
-/* ================= フィード描画 ================= */
-function renderFeed() {
-  paintPosts(els.feed, posts, 'まだアイデアが投稿されていません。\n最初の投稿者になりましょう。');
+/* ================= フィード描画 =================
+   フィードは PAGE_SIZE 件ずつ描画し、末尾（feedEnd）が
+   画面に入ったら続きを追加する（無限スクロール）。     */
+
+function renderFeed(keepShown) {
+  /* keepShown = true のときは、いま表示している件数を保ったまま描き直す。
+     削除のあとに先頭まで戻ってしまうのを防ぐため。 */
+  const want = Math.min(keepShown ? Math.max(feedShown, PAGE_SIZE) : PAGE_SIZE, posts.length);
+
+  els.feed.innerHTML = '';
+  feedShown = 0;
+
+  if (posts.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.style.whiteSpace = 'pre-line';
+    empty.textContent = 'まだアイデアが投稿されていません。\n最初の投稿者になりましょう。';
+    els.feed.appendChild(empty);
+  } else {
+    appendPosts(want);
+  }
+
+  updateFeedEnd();
+  fillFeed();
   if (currentView === 'search') { runSearch(); }
+}
+
+/* 続きを count 件ぶん追加する（すでに描画済みのものは触らない） */
+function appendPosts(count) {
+  const next = posts.slice(feedShown, feedShown + count);
+  const frag = document.createDocumentFragment();
+  next.forEach((post) => frag.appendChild(createPost(post)));
+  els.feed.appendChild(frag);
+  feedShown += next.length;
+  updateFeedEnd();
+}
+
+function updateFeedEnd() {
+  if (posts.length === 0) {
+    els.feedEnd.textContent = '';
+    return;
+  }
+  els.feedEnd.textContent = feedShown < posts.length
+    ? '読み込み中…'
+    : 'すべての投稿を表示しました';
+}
+
+/* 末尾が画面に近づいている間、続きを読み込む。
+   1回の描画で画面が埋まらない場合もあるので、埋まるまで繰り返す。
+   （IntersectionObserver は描画が止まっている環境で発火しないことが
+     あるため、確実に動くスクロール位置の判定を使っている）        */
+function fillFeed() {
+  if (currentView !== 'home') { return; }
+
+  /* 想定外の状況で無限ループにならないよう回数を制限する */
+  for (let guard = 0; guard < 50; guard++) {
+    if (feedShown >= posts.length) { return; }
+    const top = els.feedEnd.getBoundingClientRect().top;
+    if (top > window.innerHeight + LOAD_MARGIN) { return; }
+    appendPosts(PAGE_SIZE);
+  }
+}
+
+function setupInfiniteScroll() {
+  /* スクロール監視と IntersectionObserver の両方から fillFeed を呼ぶ。
+     fillFeed は何度呼ばれても安全なので、片方が動かない環境でも
+     もう片方で読み込みが続く。 */
+  window.addEventListener('scroll', fillFeed, { passive: true });
+  window.addEventListener('resize', fillFeed);
+
+  if (typeof IntersectionObserver !== 'undefined') {
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) { fillFeed(); }
+    }, { rootMargin: LOAD_MARGIN + 'px 0px' });
+    observer.observe(els.feedEnd);
+  }
+
+  fillFeed();
 }
 
 function paintPosts(container, list, emptyText) {
@@ -413,7 +571,7 @@ function createPost(post) {
       if (!confirm('この投稿を削除しますか？')) { return; }
       posts = posts.filter((p) => p.id !== post.id);
       savePosts();
-      renderFeed();
+      renderFeed(true);
     });
     actions.appendChild(del);
   }

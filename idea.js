@@ -2,6 +2,10 @@
    loper - IdeaShare  /  script
    ※ サーバーを持たないため、データはこの端末の
      localStorage にのみ保存されます。
+
+   投稿のカウンター
+     緑 = 完成した数（done）  … そのアイデアを作り終えた人の数
+     黄 = 開発中の数（dev）    … そのアイデアを開発中の人の数
    ========================================================= */
 
 'use strict';
@@ -10,6 +14,7 @@ const KEY_POSTS   = 'loper_ideas';
 const KEY_PROFILE = 'loper_profile';
 const KEY_NOTICES = 'loper_notices';
 const KEY_PREFS   = 'loper_prefs';
+const KEY_SEEDED  = 'loper_seeded';
 const MAX_TEXT    = 300;
 
 const AVATAR_COLORS = [
@@ -88,42 +93,63 @@ function loadAll() {
   profile = Object.assign({ name: 'name', color: '#ffffff' }, read(KEY_PROFILE, {}));
   prefs   = Object.assign({ showAds: true }, read(KEY_PREFS, {}));
 
-  if (!Array.isArray(posts)) {
+  let seeded = false;
+  try { seeded = !!localStorage.getItem(KEY_SEEDED); } catch (e) { /* noop */ }
+
+  /* 初回、または以前のバージョンの空データが残っている場合はダミー投稿を入れる */
+  if (!Array.isArray(posts) || (posts.length === 0 && !seeded)) {
     posts = seedPosts();
     write(KEY_POSTS, posts);
+    try { localStorage.setItem(KEY_SEEDED, '1'); } catch (e) { /* noop */ }
+  } else {
+    posts = posts.map(normalizePost);
   }
 }
 
+function normalizePost(post) {
+  return {
+    id:       post.id,
+    name:     post.name || 'name',
+    color:    post.color || '#ffffff',
+    text:     post.text || '',
+    date:     post.date || '',
+    done:     typeof post.done === 'number' ? post.done : (post.likes || 0),
+    dev:      typeof post.dev === 'number' ? post.dev : 0,
+    myDone:   !!post.myDone,
+    myDev:    !!post.myDev,
+    comments: Array.isArray(post.comments) ? post.comments : [],
+    mine:     !!post.mine
+  };
+}
+
+/* ---- ダミー投稿 ---- */
 function seedPosts() {
-  return [
-    {
-      id: 2,
-      name: 'ルナ｜個人開発',
-      color: '#ffffff',
-      text: '最強のローカルLLMほしいです',
-      date: '2026年08月17日 21:40',
-      likes: 1,
-      liked: false,
-      comments: [
-        { name: 'こう', color: '#6fd3e2', text: '量子化すればノートPCでも動きますよ' },
-        { name: 'たかし', color: '#ffffff', text: 'メモリどれくらい要りますか？' }
-      ],
-      mine: false
-    },
-    {
-      id: 1,
-      name: 'たかし',
-      color: '#ffffff',
-      text: '誰かUnrealのを日本語表記にするやつ作ってくれ',
-      date: '2026年08月17日 18:12',
-      likes: 0,
-      liked: false,
-      comments: [
-        { name: 'ルナ｜個人開発', color: '#ffffff', text: 'ブループリントのノード名だけでも需要ありそう' }
-      ],
-      mine: false
-    }
+  const data = [
+    ['ルナ｜個人開発', '#ffffff', '最強のローカルLLMほしいです', '2026年08月17日 21:40', 1, 4,
+      [['こう', '#6fd3e2', '量子化すればノートPCでも動きますよ'],
+       ['たかし', '#ffffff', 'メモリどれくらい要りますか？']]],
+    ['たかし', '#ffffff', '誰かUnrealのを日本語表記にするやつ作ってくれ', '2026年08月17日 18:12', 0, 6,
+      [['ルナ｜個人開発', '#ffffff', 'ブループリントのノード名だけでも需要ありそう']]],
+    ['みなと', '#8fa8ff', 'Discordの通知をまとめて要約してくれるBotがほしい。\n未読が溜まると追うのが大変なので。', '2026年08月16日 23:05', 3, 2, []],
+    ['あおい', '#c79bf0', 'Gitのコミットメッセージを自動で日本語にするCLIツール', '2026年08月16日 12:30', 2, 1,
+      [['みなと', '#8fa8ff', 'それ普通にほしい']]],
+    ['けんと', '#ffb26b', 'スマホで撮ったホワイトボードの写真を、きれいなMarkdownに変換するアプリ', '2026年08月15日 19:48', 5, 3, []],
+    ['さくら', '#f98080', '積みゲー管理アプリ。積んだ日数とクリア率が見えると罪悪感で進むと思う。', '2026年08月14日 09:15', 1, 0, []]
   ];
+
+  return data.map((row, i) => ({
+    id:    1000 + (data.length - i),
+    name:  row[0],
+    color: row[1],
+    text:  row[2],
+    date:  row[3],
+    done:  row[4],
+    dev:   row[5],
+    myDone: false,
+    myDev:  false,
+    comments: row[6].map((c) => ({ name: c[0], color: c[1], text: c[2] })),
+    mine:  false
+  }));
 }
 
 const savePosts   = () => write(KEY_POSTS, posts);
@@ -146,6 +172,10 @@ function makeAvatar(name, color, small) {
   el.style.background = color || '#ffffff';
   el.textContent = initialOf(name);
   return el;
+}
+
+function shorten(text) {
+  return text.length > 16 ? text.slice(0, 16) + '…' : text;
 }
 
 /* ================= 画面切り替え ================= */
@@ -204,8 +234,10 @@ function bindComposer() {
       color: profile.color,
       text: text,
       date: formatDate(new Date()),
-      likes: 0,
-      liked: false,
+      done: 0,
+      dev: 0,
+      myDone: false,
+      myDev: false,
       comments: [],
       mine: true
     });
@@ -279,16 +311,19 @@ function createPost(post) {
   text.textContent = post.text;
   card.appendChild(text);
 
-  /* --- アクション --- */
+  /* --- カウンター --- */
   const actions = document.createElement('div');
   actions.className = 'post-actions';
 
-  const likeBtn = makeReact('like', post.likes, post.liked);
-  likeBtn.setAttribute('aria-label', 'いいね');
-  actions.appendChild(likeBtn);
+  const doneBtn = makeReact('done', post.done, post.myDone, '完成した数（クリックで自分の完成を登録）');
+  const devBtn  = makeReact('dev',  post.dev,  post.myDev,  '開発中の数（クリックで自分の開発中を登録）');
+  actions.appendChild(doneBtn);
+  actions.appendChild(devBtn);
 
-  const commentBtn = makeReact('comment', post.comments.length, false);
-  commentBtn.setAttribute('aria-label', 'コメント');
+  const commentBtn = document.createElement('button');
+  commentBtn.type = 'button';
+  commentBtn.className = 'react-text';
+  commentBtn.textContent = 'コメント ' + post.comments.length;
   actions.appendChild(commentBtn);
 
   card.appendChild(actions);
@@ -299,22 +334,46 @@ function createPost(post) {
   comments.hidden = true;
   card.appendChild(comments);
 
-  likeBtn.addEventListener('click', () => {
-    post.liked = !post.liked;
-    post.likes += post.liked ? 1 : -1;
-    if (post.likes < 0) { post.likes = 0; }
-    likeBtn.querySelector('.react-count').textContent = post.likes;
-    likeBtn.classList.toggle('is-on', post.liked);
+  /* 完成 / 開発中 は排他。完成にすると開発中は外れる */
+  doneBtn.addEventListener('click', () => {
+    post.myDone = !post.myDone;
+    post.done += post.myDone ? 1 : -1;
+    if (post.done < 0) { post.done = 0; }
+
+    if (post.myDone && post.myDev) {
+      post.myDev = false;
+      post.dev = Math.max(0, post.dev - 1);
+      updateReact(devBtn, post.dev, false);
+    }
+
+    updateReact(doneBtn, post.done, post.myDone);
     savePosts();
-    if (post.liked && post.mine) {
-      addNotice('like', '自分の投稿「' + shorten(post.text) + '」にいいねしました。');
+    if (post.myDone) {
+      addNotice('done', '「' + shorten(post.text) + '」を完成として登録しました。');
+    }
+  });
+
+  devBtn.addEventListener('click', () => {
+    post.myDev = !post.myDev;
+    post.dev += post.myDev ? 1 : -1;
+    if (post.dev < 0) { post.dev = 0; }
+
+    if (post.myDev && post.myDone) {
+      post.myDone = false;
+      post.done = Math.max(0, post.done - 1);
+      updateReact(doneBtn, post.done, false);
+    }
+
+    updateReact(devBtn, post.dev, post.myDev);
+    savePosts();
+    if (post.myDev) {
+      addNotice('dev', '「' + shorten(post.text) + '」を開発中として登録しました。');
     }
   });
 
   commentBtn.addEventListener('click', () => {
     const open = comments.hidden;
     comments.hidden = !open;
-    commentBtn.classList.toggle('is-on', open);
     if (open) { renderComments(post, comments, commentBtn); }
   });
 
@@ -336,10 +395,12 @@ function createPost(post) {
   return card;
 }
 
-function makeReact(kind, count, on) {
+function makeReact(kind, count, on, label) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'react react-' + kind + (on ? ' is-on' : '');
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
 
   const dot = document.createElement('span');
   dot.className = 'react-dot';
@@ -353,8 +414,9 @@ function makeReact(kind, count, on) {
   return btn;
 }
 
-function shorten(text) {
-  return text.length > 18 ? text.slice(0, 18) + '…' : text;
+function updateReact(btn, count, on) {
+  btn.querySelector('.react-count').textContent = count;
+  btn.classList.toggle('is-on', on);
 }
 
 /* ================= コメント ================= */
@@ -409,10 +471,7 @@ function renderComments(post, container, commentBtn) {
     });
 
     savePosts();
-    commentBtn.querySelector('.react-count').textContent = post.comments.length;
-    if (post.mine) {
-      addNotice('comment', '自分の投稿「' + shorten(post.text) + '」にコメントしました。');
-    }
+    commentBtn.textContent = 'コメント ' + post.comments.length;
     renderComments(post, container, commentBtn);
   });
 
@@ -550,7 +609,7 @@ function bindSettings() {
 
   els.clearData.addEventListener('click', () => {
     if (!confirm('投稿・通知・プロフィールをすべて削除します。よろしいですか？')) { return; }
-    [KEY_POSTS, KEY_NOTICES, KEY_PROFILE, KEY_PREFS].forEach((k) => {
+    [KEY_POSTS, KEY_NOTICES, KEY_PROFILE, KEY_PREFS, KEY_SEEDED].forEach((k) => {
       try { localStorage.removeItem(k); } catch (e) { /* noop */ }
     });
     location.reload();

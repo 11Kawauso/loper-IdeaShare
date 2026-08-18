@@ -97,22 +97,64 @@ function write(key, value) {
 }
 
 function loadAll() {
-  posts   = read(KEY_POSTS, null);
+  const stored = read(KEY_POSTS, null);
   notices = read(KEY_NOTICES, []);
   profile = Object.assign({ name: 'name', color: '#ffffff' }, read(KEY_PROFILE, {}));
   prefs   = Object.assign({ showAds: true }, read(KEY_PREFS, {}));
 
-  let seeded = false;
-  try { seeded = !!localStorage.getItem(KEY_SEEDED); } catch (e) { /* noop */ }
+  let savedSignature = null;
+  try { savedSignature = localStorage.getItem(KEY_SEEDED); } catch (e) { /* noop */ }
 
-  /* 初回、または以前のバージョンの空データが残っている場合はダミー投稿を入れる */
-  if (!Array.isArray(posts) || (posts.length === 0 && !seeded)) {
+  const signature = seedSignature();
+
+  if (!Array.isArray(stored)) {
+    /* 初回アクセス */
     posts = seedPosts();
-    write(KEY_POSTS, posts);
-    try { localStorage.setItem(KEY_SEEDED, '1'); } catch (e) { /* noop */ }
+  } else if (savedSignature !== signature) {
+    /* ダミー投稿の内容が変わっている（＝サイトを更新した）。
+       古いダミーが残ったままにならないよう作り直す。 */
+    posts = refreshSeed(stored.map(normalizePost));
   } else {
-    posts = posts.map(normalizePost);
+    posts = stored.map(normalizePost);
   }
+
+  if (savedSignature !== signature) {
+    write(KEY_POSTS, posts);
+    try { localStorage.setItem(KEY_SEEDED, signature); } catch (e) { /* noop */ }
+  }
+}
+
+/* ダミー投稿の中身から作る短い識別子。
+   SEED_DATA を書き換えると自動的に変わるので、
+   バージョン番号を手で上げる必要がない。            */
+function seedSignature() {
+  const src = JSON.stringify(SEED_DATA) + JSON.stringify(NAMES);
+  let hash = 0;
+  for (let i = 0; i < src.length; i++) {
+    hash = (hash * 31 + src.charCodeAt(i)) | 0;
+  }
+  return 'seed' + hash;
+}
+
+/* ダミー投稿を新しいものに入れ替える。
+   自分の投稿と、自分が押した反応は引き継ぐ。 */
+function refreshSeed(oldPosts) {
+  const mine   = oldPosts.filter((p) => p.mine);
+  const before = new Map(oldPosts.map((p) => [p.text, p]));
+
+  const fresh = seedPosts().map((post) => {
+    const old = before.get(post.text);
+    if (!old) { return post; }
+
+    /* 保存されている件数には自分のぶんが含まれていないので、
+       押していた反応は +1 して復元する */
+    if (old.myDone) { post.myDone = true; post.done += 1; }
+    if (old.myDev)  { post.myDev  = true; post.dev  += 1; }
+    if (old.myLike) { post.myLike = true; post.like += 1; }
+    return post;
+  });
+
+  return mine.concat(fresh);
 }
 
 function normalizePost(post) {

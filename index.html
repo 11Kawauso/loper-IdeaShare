@@ -37,6 +37,8 @@
 
       <!-- ホーム -->
       <section class="view is-active" id="view-home">
+        <!-- 投稿欄と凡例は画面上部に固定する -->
+        <div class="feed-top">
         <div class="composer">
           <button type="button" class="composer-open" id="composerOpen">
             <span class="avatar avatar-sm" id="composerAvatar">n</span>
@@ -61,6 +63,7 @@
           <span class="legend-item"><span class="legend-dot dev"></span>開発中の数</span>
           <span class="legend-item"><span class="legend-dot like"></span>いいね</span>
         </div>
+        </div><!-- /.feed-top -->
 
         <div class="feed" id="feed"></div>
 

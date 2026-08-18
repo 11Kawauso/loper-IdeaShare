@@ -167,9 +167,11 @@ button { background: none; border: none; cursor: pointer; }
 .view { display: none; }
 .view.is-active { display: block; animation: fade 0.18s ease; }
 
+/* transform を使うと、その要素が position: sticky の
+   基準になってしまい上部固定がずれるため opacity だけにする */
 @keyframes fade {
-  from { opacity: 0; transform: translateY(3px); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .view-title {
@@ -179,6 +181,19 @@ button { background: none; border: none; cursor: pointer; }
   margin-bottom: 16px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
+}
+
+/* ================= 上部固定エリア =================
+   投稿欄と凡例をスクロールしても画面上部に残す。
+   .main の左右パディングぶんを打ち消して、背景を
+   カラムの端まで広げている（投稿が透けないように）。 */
+.feed-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  margin: -18px -26px 0;
+  padding: 18px 26px 0;
 }
 
 /* ================= 投稿フォーム ================= */
@@ -583,6 +598,7 @@ button { background: none; border: none; cursor: pointer; }
   .profile-name { display: none; }
 
   .main { padding: 14px 14px 78px; }
+  .feed-top { margin: -14px -14px 0; padding: 14px 14px 0; }
 
   .mobile-nav {
     display: grid;

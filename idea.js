@@ -16,6 +16,7 @@ const KEY_PROFILE = 'loper_profile';
 const KEY_NOTICES = 'loper_notices';
 const KEY_PREFS   = 'loper_prefs';
 const KEY_SEEDED  = 'loper_seeded';
+const KEY_REPORTS = 'loper_reports';
 const MAX_TEXT    = 300;
 
 /* 無限スクロールで一度に追加する件数と、
@@ -50,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
   applyPrefs();
   renderFeed();
   setupInfiniteScroll();
+  bindPostMenuDismiss();
   renderNotices();
 });
 
@@ -504,6 +506,95 @@ function paintPosts(container, list, emptyText) {
   list.forEach((post) => container.appendChild(createPost(post)));
 }
 
+/* ================= 投稿メニュー（…） ================= */
+
+function makePostMenu(post) {
+  const wrap = document.createElement('div');
+  wrap.className = 'post-menu-wrap';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'post-menu-btn';
+  btn.title = 'メニュー';
+  btn.setAttribute('aria-label', 'この投稿のメニュー');
+  btn.setAttribute('aria-haspopup', 'true');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">' +
+    '<circle cx="4" cy="10" r="1.7"/><circle cx="10" cy="10" r="1.7"/><circle cx="16" cy="10" r="1.7"/></svg>';
+
+  const menu = document.createElement('div');
+  menu.className = 'post-menu';
+  menu.hidden = true;
+  menu.setAttribute('role', 'menu');
+
+  const report = document.createElement('button');
+  report.type = 'button';
+  report.className = 'post-menu-item is-danger';
+  report.setAttribute('role', 'menuitem');
+  report.textContent = '通報する';
+  report.addEventListener('click', () => {
+    closeAllPostMenus();
+    reportPost(post);
+  });
+  menu.appendChild(report);
+
+  btn.addEventListener('click', () => {
+    const willOpen = menu.hidden;
+    closeAllPostMenus();
+    menu.hidden = !willOpen;
+    btn.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen) { report.focus(); }
+  });
+
+  wrap.appendChild(btn);
+  wrap.appendChild(menu);
+  return wrap;
+}
+
+function closeAllPostMenus() {
+  document.querySelectorAll('.post-menu').forEach((m) => { m.hidden = true; });
+  document.querySelectorAll('.post-menu-btn').forEach((b) => {
+    b.setAttribute('aria-expanded', 'false');
+  });
+}
+
+/* メニューの外側を押す・Escapeキーで閉じる */
+function bindPostMenuDismiss() {
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest || !e.target.closest('.post-menu-wrap')) {
+      closeAllPostMenus();
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeAllPostMenus(); }
+  });
+}
+
+/* 通報。サーバーが無いため、いまは端末内に記録するだけ。
+   本番では Firestore の reports コレクションに書き込む。 */
+function reportPost(post) {
+  const reports = read(KEY_REPORTS, []);
+
+  if (reports.some((r) => r.postId === post.id)) {
+    alert('この投稿は既に通報済みです。');
+    return;
+  }
+
+  const label = 'この投稿を通報しますか？' + String.fromCharCode(10, 10) + '「' + shorten(post.text) + '」';
+  if (!confirm(label)) { return; }
+
+  reports.unshift({
+    postId: post.id,
+    name: post.name,
+    text: post.text,
+    date: formatDate(new Date())
+  });
+  write(KEY_REPORTS, reports.slice(0, 100));
+
+  alert('通報を受け付けました。ご協力ありがとうございます。');
+}
+
 function createPost(post) {
   const card = document.createElement('article');
   card.className = 'post';
@@ -522,6 +613,11 @@ function createPost(post) {
   date.className = 'post-date';
   date.textContent = post.date;
   head.appendChild(date);
+
+  /* 自分の投稿には出さない（自分で通報する意味がないため） */
+  if (!post.mine) {
+    head.appendChild(makePostMenu(post));
+  }
 
   card.appendChild(head);
 

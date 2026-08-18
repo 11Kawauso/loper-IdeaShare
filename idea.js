@@ -526,12 +526,7 @@ function createPost(post) {
   const actions = document.createElement('div');
   actions.className = 'post-actions';
 
-  const doneBtn = makeReact('done', post.done, post.myDone, '完成した数（クリックで自分の完成を登録）');
-  const devBtn  = makeReact('dev',  post.dev,  post.myDev,  '開発中の数（クリックで自分の開発中を登録）');
-  const likeBtn = makeReact('like', post.like, post.myLike, 'いいね（このアイデアが欲しい）');
-  actions.appendChild(doneBtn);
-  actions.appendChild(devBtn);
-  actions.appendChild(likeBtn);
+  addReactCounters(actions, post);
 
   const commentBtn = document.createElement('button');
   commentBtn.type = 'button';
@@ -546,6 +541,48 @@ function createPost(post) {
   comments.className = 'comments';
   comments.hidden = true;
   card.appendChild(comments);
+
+  commentBtn.addEventListener('click', () => {
+    const open = comments.hidden;
+    comments.hidden = !open;
+    if (open) { renderComments(post, comments, commentBtn); }
+  });
+
+  /* --- 削除（自分の投稿のみ） --- */
+  if (post.mine) {
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'post-delete';
+    del.textContent = '削除';
+    del.addEventListener('click', () => {
+      if (!confirm('この投稿を削除しますか？')) { return; }
+      posts = posts.filter((p) => p.id !== post.id);
+      savePosts();
+      renderFeed(true);
+    });
+    actions.appendChild(del);
+  }
+
+  return card;
+}
+
+/* 完成・開発中・いいねの3つを actions に入れる。
+   自分の投稿は自分で押せてしまうため、数字を見るだけの表示にする。 */
+function addReactCounters(actions, post) {
+  if (post.mine) {
+    actions.appendChild(makeReact('done', post.done, false, '完成した数', false));
+    actions.appendChild(makeReact('dev',  post.dev,  false, '開発中の数', false));
+    actions.appendChild(makeReact('like', post.like, false, 'いいね',     false));
+    return;
+  }
+
+  const doneBtn = makeReact('done', post.done, post.myDone, '完成した数（クリックで自分の完成を登録）');
+  const devBtn  = makeReact('dev',  post.dev,  post.myDev,  '開発中の数（クリックで自分の開発中を登録）');
+  const likeBtn = makeReact('like', post.like, post.myLike, 'いいね（このアイデアが欲しい）');
+
+  actions.appendChild(doneBtn);
+  actions.appendChild(devBtn);
+  actions.appendChild(likeBtn);
 
   /* 完成 / 開発中 は排他。完成にすると開発中は外れる */
   doneBtn.addEventListener('click', () => {
@@ -592,52 +629,34 @@ function createPost(post) {
 
     updateReact(likeBtn, post.like, post.myLike);
     savePosts();
-    if (post.myLike && post.mine === false) {
+    if (post.myLike) {
       addNotice('like', '「' + shorten(post.text) + '」にいいねしました。');
     }
   });
-
-  commentBtn.addEventListener('click', () => {
-    const open = comments.hidden;
-    comments.hidden = !open;
-    if (open) { renderComments(post, comments, commentBtn); }
-  });
-
-  /* --- 削除（自分の投稿のみ） --- */
-  if (post.mine) {
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'post-delete';
-    del.textContent = '削除';
-    del.addEventListener('click', () => {
-      if (!confirm('この投稿を削除しますか？')) { return; }
-      posts = posts.filter((p) => p.id !== post.id);
-      savePosts();
-      renderFeed(true);
-    });
-    actions.appendChild(del);
-  }
-
-  return card;
 }
 
-function makeReact(kind, count, on, label) {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'react react-' + kind + (on ? ' is-on' : '');
-  btn.title = label;
-  btn.setAttribute('aria-label', label);
+/* interactive に false を渡すと、押せない表示専用の要素を作る */
+function makeReact(kind, count, on, label, interactive) {
+  const isButton = interactive !== false;
+  const el = document.createElement(isButton ? 'button' : 'span');
+
+  if (isButton) { el.type = 'button'; }
+  el.className = 'react react-' + kind +
+    (on ? ' is-on' : '') +
+    (isButton ? '' : ' is-static');
+  el.title = label;
+  el.setAttribute('aria-label', label + ' ' + count);
 
   const dot = document.createElement('span');
   dot.className = 'react-dot';
-  btn.appendChild(dot);
+  el.appendChild(dot);
 
   const num = document.createElement('span');
   num.className = 'react-count';
   num.textContent = count;
-  btn.appendChild(num);
+  el.appendChild(num);
 
-  return btn;
+  return el;
 }
 
 function updateReact(btn, count, on) {

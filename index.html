@@ -4,44 +4,133 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>loper - IdeaShare</title>
+<meta name="description" content="loper IdeaShare - 開発のアイデアを気軽に共有するボード">
 <link rel="icon" href="images/loper_MainIcon.png">
-<link rel="stylesheet" href="Idea.css">
+<link rel="stylesheet" href="idea.css">
 </head>
 <body>
-<div class="idea-app">
 
-  <header class="idea-header">
-    <a href="https://11kawauso.github.io/loper/" class="idea-back-btn" aria-label="メイン画面へ戻る">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-    </a>
-    <h1 class="idea-header-title">アイデア投稿</h1>
-    <div class="idea-header-spacer"></div>
-  </header>
+<div class="frame">
+  <div class="app">
 
-  <main class="idea-main">
-    <p class="idea-intro">開発のアイデアを気軽に投稿してみましょう。どなたでも自由に書き込めます。</p>
+    <!-- ============ サイドバー ============ -->
+    <aside class="sidebar">
+      <a class="brand" href="https://11kawauso.github.io/loper/" aria-label="loper メイン画面へ">
+        <img src="images/loper-IdeaShare_logo.png" alt="loper IdeaShare">
+      </a>
 
-    <form class="idea-form" id="ideaForm">
-      <div class="idea-form-group">
-        <label for="ideaNameInput">名前（任意）</label>
-        <input type="text" id="ideaNameInput" maxlength="20" placeholder="匿名">
-      </div>
+      <nav class="nav" aria-label="メインナビゲーション">
+        <button type="button" class="nav-item is-active" data-view="home" aria-current="page">ホーム</button>
+        <button type="button" class="nav-item" data-view="search">検索</button>
+        <button type="button" class="nav-item" data-view="notice">通知<span class="nav-badge" id="noticeBadge" hidden>0</span></button>
+        <button type="button" class="nav-item" data-view="settings">設定</button>
+      </nav>
 
-      <div class="idea-form-group">
-        <label for="ideaTextInput">アイデア内容</label>
-        <textarea id="ideaTextInput" maxlength="300" placeholder="どんなアイデアでもOKです" required></textarea>
-        <span class="idea-char-counter" id="ideaCharCounter">0 / 300</span>
-      </div>
+      <button type="button" class="profile-chip" data-view="settings">
+        <span class="avatar" id="myAvatar">n</span>
+        <span class="profile-name" id="myName">name</span>
+      </button>
+    </aside>
 
-      <button type="submit" class="idea-submit-btn">投稿する</button>
-    </form>
+    <!-- ============ メインカラム ============ -->
+    <main class="main">
 
-    <div class="idea-list" id="ideaList">
-      <!-- JSで生成 -->
-    </div>
-  </main>
+      <!-- ホーム -->
+      <section class="view is-active" id="view-home">
+        <div class="composer">
+          <button type="button" class="composer-open" id="composerOpen">
+            <span class="avatar avatar-sm" id="composerAvatar">n</span>
+            <span class="composer-placeholder">アイデアを投稿する</span>
+          </button>
 
+          <form class="composer-form" id="ideaForm" hidden>
+            <textarea id="ideaTextInput" maxlength="300" rows="3"
+                      placeholder="どんなアイデアでもOKです" required></textarea>
+            <div class="composer-actions">
+              <span class="char-counter" id="charCounter">0 / 300</span>
+              <div class="composer-buttons">
+                <button type="button" class="btn btn-ghost" id="composerCancel">キャンセル</button>
+                <button type="submit" class="btn btn-primary">投稿する</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+
+        <div class="feed" id="feed"></div>
+
+        <div class="dots dots-sm" aria-hidden="true"><span></span><span></span><span></span></div>
+      </section>
+
+      <!-- 検索 -->
+      <section class="view" id="view-search">
+        <h2 class="view-title">検索</h2>
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="20" y1="20" x2="16.7" y2="16.7"></line></svg>
+          <input type="search" id="searchInput" placeholder="キーワード・投稿者名で検索" autocomplete="off">
+        </div>
+        <p class="search-hint" id="searchHint">キーワードを入力すると投稿を絞り込みます。</p>
+        <div class="feed" id="searchResults"></div>
+      </section>
+
+      <!-- 通知 -->
+      <section class="view" id="view-notice">
+        <h2 class="view-title">通知</h2>
+        <div class="notice-list" id="noticeList"></div>
+      </section>
+
+      <!-- 設定 -->
+      <section class="view" id="view-settings">
+        <h2 class="view-title">設定</h2>
+
+        <div class="panel">
+          <h3 class="panel-title">プロフィール</h3>
+          <div class="field">
+            <label for="nameInput">表示名</label>
+            <input type="text" id="nameInput" maxlength="20" placeholder="name">
+          </div>
+          <div class="field">
+            <span class="field-label">アバターの色</span>
+            <div class="swatches" id="swatches"></div>
+          </div>
+          <button type="button" class="btn btn-primary" id="saveProfile">保存する</button>
+          <span class="saved-msg" id="savedMsg" hidden>保存しました</span>
+        </div>
+
+        <div class="panel">
+          <h3 class="panel-title">表示</h3>
+          <label class="toggle">
+            <input type="checkbox" id="toggleAds" checked>
+            <span class="toggle-track"><span class="toggle-knob"></span></span>
+            <span class="toggle-label">広告エリアを表示する</span>
+          </label>
+        </div>
+
+        <div class="panel panel-danger">
+          <h3 class="panel-title">データ</h3>
+          <p class="panel-note">投稿・通知・プロフィールはこの端末のブラウザ内にのみ保存されます。</p>
+          <button type="button" class="btn btn-danger" id="clearData">すべてのデータを削除</button>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ============ 広告レール ============ -->
+    <aside class="ad-rail" id="adRail">
+      <div class="ad">広告</div>
+    </aside>
+
+  </div>
 </div>
+
+<!-- モバイル用ボトムナビ -->
+<nav class="mobile-nav" aria-label="モバイルナビゲーション">
+  <button type="button" class="mnav-item is-active" data-view="home">ホーム</button>
+  <button type="button" class="mnav-item" data-view="search">検索</button>
+  <button type="button" class="mnav-item" data-view="notice">通知</button>
+  <button type="button" class="mnav-item" data-view="settings">設定</button>
+</nav>
 
 <script src="idea.js"></script>
 </body>

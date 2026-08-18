@@ -1,143 +1,582 @@
 /* =========================================================
-   アイデア投稿ページ スクリプト
-   ※ ローカル保存（localStorage）のみで動作する簡易版です。
+   loper - IdeaShare  /  script
+   ※ サーバーを持たないため、データはこの端末の
+     localStorage にのみ保存されます。
    ========================================================= */
 
-const STORAGE_KEY = 'loper_ideas';
-const MAX_TEXT_LENGTH = 300;
+'use strict';
 
-let ideas = [];
+const KEY_POSTS   = 'loper_ideas';
+const KEY_PROFILE = 'loper_profile';
+const KEY_NOTICES = 'loper_notices';
+const KEY_PREFS   = 'loper_prefs';
+const MAX_TEXT    = 300;
+
+const AVATAR_COLORS = [
+  '#ffffff', '#6fd3e2', '#35d43f', '#d6c62c',
+  '#f98080', '#c79bf0', '#8fa8ff', '#ffb26b'
+];
+
+let posts   = [];
+let notices = [];
+let profile = { name: 'name', color: '#ffffff' };
+let prefs   = { showAds: true };
+let currentView = 'home';
+
 const els = {};
 
+/* ================= 起動 ================= */
 document.addEventListener('DOMContentLoaded', () => {
   cacheElements();
-  loadIdeas();
-  renderIdeas();
-  setupForm();
+  loadAll();
+  buildSwatches();
+  bindNav();
+  bindComposer();
+  bindSearch();
+  bindSettings();
+  applyProfile();
+  applyPrefs();
+  renderFeed();
+  renderNotices();
 });
 
 function cacheElements() {
-  els.form = document.getElementById('ideaForm');
-  els.nameInput = document.getElementById('ideaNameInput');
-  els.textInput = document.getElementById('ideaTextInput');
-  els.charCounter = document.getElementById('ideaCharCounter');
-  els.list = document.getElementById('ideaList');
+  els.myAvatar       = document.getElementById('myAvatar');
+  els.myName         = document.getElementById('myName');
+  els.composerAvatar = document.getElementById('composerAvatar');
+  els.composerOpen   = document.getElementById('composerOpen');
+  els.composerCancel = document.getElementById('composerCancel');
+  els.form           = document.getElementById('ideaForm');
+  els.textInput      = document.getElementById('ideaTextInput');
+  els.charCounter    = document.getElementById('charCounter');
+  els.feed           = document.getElementById('feed');
+  els.searchInput    = document.getElementById('searchInput');
+  els.searchResults  = document.getElementById('searchResults');
+  els.searchHint     = document.getElementById('searchHint');
+  els.noticeList     = document.getElementById('noticeList');
+  els.noticeBadge    = document.getElementById('noticeBadge');
+  els.nameInput      = document.getElementById('nameInput');
+  els.swatches       = document.getElementById('swatches');
+  els.saveProfile    = document.getElementById('saveProfile');
+  els.savedMsg       = document.getElementById('savedMsg');
+  els.toggleAds      = document.getElementById('toggleAds');
+  els.clearData      = document.getElementById('clearData');
+  els.adRail         = document.getElementById('adRail');
 }
 
-function loadIdeas() {
+/* ================= 保存・読み込み ================= */
+function read(key, fallback) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    ideas = raw ? JSON.parse(raw) : [];
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
   } catch (e) {
-    ideas = [];
+    return fallback;
   }
 }
 
-function saveIdeas() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+function write(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    /* 保存領域が使えない環境では黙って続行する */
+  }
 }
 
+function loadAll() {
+  posts   = read(KEY_POSTS, null);
+  notices = read(KEY_NOTICES, []);
+  profile = Object.assign({ name: 'name', color: '#ffffff' }, read(KEY_PROFILE, {}));
+  prefs   = Object.assign({ showAds: true }, read(KEY_PREFS, {}));
+
+  if (!Array.isArray(posts)) {
+    posts = seedPosts();
+    write(KEY_POSTS, posts);
+  }
+}
+
+function seedPosts() {
+  return [
+    {
+      id: 2,
+      name: 'ルナ｜個人開発',
+      color: '#ffffff',
+      text: '最強のローカルLLMほしいです',
+      date: '2026年08月17日 21:40',
+      likes: 1,
+      liked: false,
+      comments: [
+        { name: 'こう', color: '#6fd3e2', text: '量子化すればノートPCでも動きますよ' },
+        { name: 'たかし', color: '#ffffff', text: 'メモリどれくらい要りますか？' }
+      ],
+      mine: false
+    },
+    {
+      id: 1,
+      name: 'たかし',
+      color: '#ffffff',
+      text: '誰かUnrealのを日本語表記にするやつ作ってくれ',
+      date: '2026年08月17日 18:12',
+      likes: 0,
+      liked: false,
+      comments: [
+        { name: 'ルナ｜個人開発', color: '#ffffff', text: 'ブループリントのノード名だけでも需要ありそう' }
+      ],
+      mine: false
+    }
+  ];
+}
+
+const savePosts   = () => write(KEY_POSTS, posts);
+const saveNotices = () => write(KEY_NOTICES, notices);
+
+/* ================= 共通ユーティリティ ================= */
 function formatDate(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const hh = String(date.getHours()).padStart(2, '0');
-  const mm = String(date.getMinutes()).padStart(2, '0');
-  return y + '年' + m + '月' + d + '日 ' + hh + ':' + mm;
+  const p = (n) => String(n).padStart(2, '0');
+  return date.getFullYear() + '年' + p(date.getMonth() + 1) + '月' +
+         p(date.getDate()) + '日 ' + p(date.getHours()) + ':' + p(date.getMinutes());
 }
 
-function setupForm() {
+function initialOf(name) {
+  return (name || '?').trim().charAt(0) || '?';
+}
+
+function makeAvatar(name, color, small) {
+  const el = document.createElement('span');
+  el.className = 'avatar' + (small ? ' avatar-sm' : '');
+  el.style.background = color || '#ffffff';
+  el.textContent = initialOf(name);
+  return el;
+}
+
+/* ================= 画面切り替え ================= */
+function bindNav() {
+  document.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => showView(btn.dataset.view));
+  });
+}
+
+function showView(view) {
+  currentView = view;
+
+  document.querySelectorAll('.view').forEach((section) => {
+    section.classList.toggle('is-active', section.id === 'view-' + view);
+  });
+
+  document.querySelectorAll('.nav-item, .mnav-item').forEach((btn) => {
+    const on = btn.dataset.view === view;
+    btn.classList.toggle('is-active', on);
+    if (btn.classList.contains('nav-item')) {
+      if (on) { btn.setAttribute('aria-current', 'page'); }
+      else    { btn.removeAttribute('aria-current'); }
+    }
+  });
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  if (view === 'notice') { markNoticesRead(); }
+  if (view === 'search') { els.searchInput.focus(); }
+}
+
+/* ================= 投稿フォーム ================= */
+function bindComposer() {
+  els.composerOpen.addEventListener('click', () => openComposer(true));
+  els.composerCancel.addEventListener('click', () => {
+    els.form.reset();
+    resetCounter();
+    openComposer(false);
+  });
+
   els.textInput.addEventListener('input', () => {
     const len = els.textInput.value.length;
-    els.charCounter.textContent = len + ' / ' + MAX_TEXT_LENGTH;
-    els.charCounter.className = 'idea-char-counter' +
-      (len >= MAX_TEXT_LENGTH ? ' at-limit' : len >= MAX_TEXT_LENGTH - 50 ? ' near-limit' : '');
+    els.charCounter.textContent = len + ' / ' + MAX_TEXT;
+    els.charCounter.className = 'char-counter' +
+      (len >= MAX_TEXT ? ' at-limit' : len >= MAX_TEXT - 50 ? ' near-limit' : '');
   });
 
   els.form.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = els.textInput.value.trim();
-    if (!text) return;
+    if (!text) { return; }
 
-    const name = els.nameInput.value.trim() || '匿名';
-
-    const newIdea = {
+    posts.unshift({
       id: Date.now(),
-      name: name,
+      name: profile.name || 'name',
+      color: profile.color,
       text: text,
       date: formatDate(new Date()),
       likes: 0,
       liked: false,
-    };
+      comments: [],
+      mine: true
+    });
 
-    ideas.unshift(newIdea);
-    saveIdeas();
-    renderIdeas();
+    savePosts();
+    addNotice('system', 'アイデアを投稿しました。');
+    renderFeed();
 
     els.form.reset();
-    els.charCounter.textContent = '0 / ' + MAX_TEXT_LENGTH;
-    els.charCounter.className = 'idea-char-counter';
+    resetCounter();
+    openComposer(false);
   });
 }
 
-function renderIdeas() {
-  els.list.innerHTML = '';
+function openComposer(open) {
+  els.composerOpen.hidden = open;
+  els.form.hidden = !open;
+  if (open) { els.textInput.focus(); }
+}
 
-  if (ideas.length === 0) {
+function resetCounter() {
+  els.charCounter.textContent = '0 / ' + MAX_TEXT;
+  els.charCounter.className = 'char-counter';
+}
+
+/* ================= フィード描画 ================= */
+function renderFeed() {
+  paintPosts(els.feed, posts, 'まだアイデアが投稿されていません。\n最初の投稿者になりましょう。');
+  if (currentView === 'search') { runSearch(); }
+}
+
+function paintPosts(container, list, emptyText) {
+  container.innerHTML = '';
+
+  if (list.length === 0) {
     const empty = document.createElement('div');
-    empty.className = 'idea-empty';
-    empty.textContent = 'まだアイデアが投稿されていません。最初の投稿者になりましょう。';
-    els.list.appendChild(empty);
+    empty.className = 'empty';
+    empty.textContent = emptyText;
+    empty.style.whiteSpace = 'pre-line';
+    container.appendChild(empty);
     return;
   }
 
-  ideas.forEach((idea) => {
-    els.list.appendChild(createIdeaCard(idea));
+  list.forEach((post) => container.appendChild(createPost(post)));
+}
+
+function createPost(post) {
+  const card = document.createElement('article');
+  card.className = 'post';
+
+  /* --- ヘッダー --- */
+  const head = document.createElement('div');
+  head.className = 'post-head';
+  head.appendChild(makeAvatar(post.name, post.color));
+
+  const name = document.createElement('span');
+  name.className = 'post-name';
+  name.textContent = post.name;
+  head.appendChild(name);
+
+  const date = document.createElement('span');
+  date.className = 'post-date';
+  date.textContent = post.date;
+  head.appendChild(date);
+
+  card.appendChild(head);
+
+  /* --- 本文 --- */
+  const text = document.createElement('p');
+  text.className = 'post-text';
+  text.textContent = post.text;
+  card.appendChild(text);
+
+  /* --- アクション --- */
+  const actions = document.createElement('div');
+  actions.className = 'post-actions';
+
+  const likeBtn = makeReact('like', post.likes, post.liked);
+  likeBtn.setAttribute('aria-label', 'いいね');
+  actions.appendChild(likeBtn);
+
+  const commentBtn = makeReact('comment', post.comments.length, false);
+  commentBtn.setAttribute('aria-label', 'コメント');
+  actions.appendChild(commentBtn);
+
+  card.appendChild(actions);
+
+  /* --- コメント欄 --- */
+  const comments = document.createElement('div');
+  comments.className = 'comments';
+  comments.hidden = true;
+  card.appendChild(comments);
+
+  likeBtn.addEventListener('click', () => {
+    post.liked = !post.liked;
+    post.likes += post.liked ? 1 : -1;
+    if (post.likes < 0) { post.likes = 0; }
+    likeBtn.querySelector('.react-count').textContent = post.likes;
+    likeBtn.classList.toggle('is-on', post.liked);
+    savePosts();
+    if (post.liked && post.mine) {
+      addNotice('like', '自分の投稿「' + shorten(post.text) + '」にいいねしました。');
+    }
+  });
+
+  commentBtn.addEventListener('click', () => {
+    const open = comments.hidden;
+    comments.hidden = !open;
+    commentBtn.classList.toggle('is-on', open);
+    if (open) { renderComments(post, comments, commentBtn); }
+  });
+
+  /* --- 削除（自分の投稿のみ） --- */
+  if (post.mine) {
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'post-delete';
+    del.textContent = '削除';
+    del.addEventListener('click', () => {
+      if (!confirm('この投稿を削除しますか？')) { return; }
+      posts = posts.filter((p) => p.id !== post.id);
+      savePosts();
+      renderFeed();
+    });
+    actions.appendChild(del);
+  }
+
+  return card;
+}
+
+function makeReact(kind, count, on) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'react react-' + kind + (on ? ' is-on' : '');
+
+  const dot = document.createElement('span');
+  dot.className = 'react-dot';
+  btn.appendChild(dot);
+
+  const num = document.createElement('span');
+  num.className = 'react-count';
+  num.textContent = count;
+  btn.appendChild(num);
+
+  return btn;
+}
+
+function shorten(text) {
+  return text.length > 18 ? text.slice(0, 18) + '…' : text;
+}
+
+/* ================= コメント ================= */
+function renderComments(post, container, commentBtn) {
+  container.innerHTML = '';
+
+  post.comments.forEach((c) => {
+    const row = document.createElement('div');
+    row.className = 'comment';
+    row.appendChild(makeAvatar(c.name, c.color, true));
+
+    const body = document.createElement('div');
+    body.className = 'comment-body';
+
+    const name = document.createElement('div');
+    name.className = 'comment-name';
+    name.textContent = c.name;
+    body.appendChild(name);
+
+    const text = document.createElement('div');
+    text.className = 'comment-text';
+    text.textContent = c.text;
+    body.appendChild(text);
+
+    row.appendChild(body);
+    container.appendChild(row);
+  });
+
+  const form = document.createElement('form');
+  form.className = 'comment-form';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = 140;
+  input.placeholder = 'コメントを書く';
+  form.appendChild(input);
+
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.textContent = '送信';
+  form.appendChild(submit);
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) { return; }
+
+    post.comments.push({
+      name: profile.name || 'name',
+      color: profile.color,
+      text: text
+    });
+
+    savePosts();
+    commentBtn.querySelector('.react-count').textContent = post.comments.length;
+    if (post.mine) {
+      addNotice('comment', '自分の投稿「' + shorten(post.text) + '」にコメントしました。');
+    }
+    renderComments(post, container, commentBtn);
+  });
+
+  container.appendChild(form);
+  input.focus();
+}
+
+/* ================= 検索 ================= */
+function bindSearch() {
+  els.searchInput.addEventListener('input', runSearch);
+}
+
+function runSearch() {
+  const q = els.searchInput.value.trim().toLowerCase();
+
+  if (!q) {
+    els.searchHint.textContent = 'キーワードを入力すると投稿を絞り込みます。';
+    els.searchResults.innerHTML = '';
+    return;
+  }
+
+  const hits = posts.filter((p) =>
+    p.text.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)
+  );
+
+  els.searchHint.textContent = hits.length + ' 件見つかりました。';
+  paintPosts(els.searchResults, hits, '一致する投稿はありません。');
+}
+
+/* ================= 通知 ================= */
+function addNotice(kind, text) {
+  notices.unshift({
+    id: Date.now() + Math.random(),
+    kind: kind,
+    text: text,
+    date: formatDate(new Date()),
+    unread: true
+  });
+  notices = notices.slice(0, 50);
+  saveNotices();
+  renderNotices();
+}
+
+function renderNotices() {
+  els.noticeList.innerHTML = '';
+
+  if (notices.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = '通知はまだありません。';
+    els.noticeList.appendChild(empty);
+  } else {
+    notices.forEach((n) => {
+      const row = document.createElement('div');
+      row.className = 'notice' + (n.unread ? ' is-unread' : '');
+
+      const icon = document.createElement('span');
+      icon.className = 'notice-icon ' + n.kind;
+      row.appendChild(icon);
+
+      const body = document.createElement('div');
+
+      const text = document.createElement('div');
+      text.className = 'notice-text';
+      text.textContent = n.text;
+      body.appendChild(text);
+
+      const date = document.createElement('div');
+      date.className = 'notice-date';
+      date.textContent = n.date;
+      body.appendChild(date);
+
+      row.appendChild(body);
+      els.noticeList.appendChild(row);
+    });
+  }
+
+  updateBadge();
+}
+
+function updateBadge() {
+  const unread = notices.filter((n) => n.unread).length;
+  els.noticeBadge.hidden = unread === 0;
+  els.noticeBadge.textContent = unread;
+}
+
+function markNoticesRead() {
+  if (!notices.some((n) => n.unread)) { return; }
+  notices.forEach((n) => { n.unread = false; });
+  saveNotices();
+  renderNotices();
+}
+
+/* ================= 設定 ================= */
+function buildSwatches() {
+  AVATAR_COLORS.forEach((color) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'swatch';
+    btn.style.background = color;
+    btn.dataset.color = color;
+    btn.setAttribute('aria-label', 'アバターの色 ' + color);
+    btn.addEventListener('click', () => {
+      profile.color = color;
+      highlightSwatch();
+      previewProfile();
+    });
+    els.swatches.appendChild(btn);
   });
 }
 
-function createIdeaCard(idea) {
-  const card = document.createElement('div');
-  card.className = 'idea-card';
+function highlightSwatch() {
+  els.swatches.querySelectorAll('.swatch').forEach((s) => {
+    s.classList.toggle('is-on', s.dataset.color === profile.color);
+  });
+}
 
-  const header = document.createElement('div');
-  header.className = 'idea-card-header';
+function bindSettings() {
+  els.nameInput.addEventListener('input', previewProfile);
 
-  const name = document.createElement('span');
-  name.className = 'idea-card-name';
-  name.textContent = idea.name;
+  els.saveProfile.addEventListener('click', () => {
+    profile.name = els.nameInput.value.trim() || 'name';
+    write(KEY_PROFILE, profile);
+    applyProfile();
 
-  const date = document.createElement('span');
-  date.className = 'idea-card-date';
-  date.textContent = idea.date;
-
-  header.appendChild(name);
-  header.appendChild(date);
-
-  const text = document.createElement('div');
-  text.className = 'idea-card-text';
-  text.textContent = idea.text;
-
-  const footer = document.createElement('div');
-  footer.className = 'idea-card-footer';
-
-  const likeBtn = document.createElement('button');
-  likeBtn.type = 'button';
-  likeBtn.className = 'idea-like-btn' + (idea.liked ? ' liked' : '');
-  likeBtn.textContent = '👍 ' + idea.likes;
-  likeBtn.addEventListener('click', () => {
-    idea.liked = !idea.liked;
-    idea.likes += idea.liked ? 1 : -1;
-    likeBtn.textContent = '👍 ' + idea.likes;
-    likeBtn.classList.toggle('liked', idea.liked);
-    saveIdeas();
+    els.savedMsg.hidden = false;
+    setTimeout(() => { els.savedMsg.hidden = true; }, 2000);
   });
 
-  footer.appendChild(likeBtn);
+  els.toggleAds.addEventListener('change', () => {
+    prefs.showAds = els.toggleAds.checked;
+    write(KEY_PREFS, prefs);
+    applyPrefs();
+  });
 
-  card.appendChild(header);
-  card.appendChild(text);
-  card.appendChild(footer);
+  els.clearData.addEventListener('click', () => {
+    if (!confirm('投稿・通知・プロフィールをすべて削除します。よろしいですか？')) { return; }
+    [KEY_POSTS, KEY_NOTICES, KEY_PROFILE, KEY_PREFS].forEach((k) => {
+      try { localStorage.removeItem(k); } catch (e) { /* noop */ }
+    });
+    location.reload();
+  });
+}
 
-  return card;
+function previewProfile() {
+  const name = els.nameInput.value.trim() || 'name';
+  els.myAvatar.textContent = initialOf(name);
+  els.myAvatar.style.background = profile.color;
+  els.composerAvatar.textContent = initialOf(name);
+  els.composerAvatar.style.background = profile.color;
+  els.myName.textContent = name;
+}
+
+function applyProfile() {
+  els.nameInput.value = profile.name === 'name' ? '' : profile.name;
+  els.myName.textContent = profile.name;
+  els.myAvatar.textContent = initialOf(profile.name);
+  els.myAvatar.style.background = profile.color;
+  els.composerAvatar.textContent = initialOf(profile.name);
+  els.composerAvatar.style.background = profile.color;
+  highlightSwatch();
+}
+
+function applyPrefs() {
+  els.toggleAds.checked = prefs.showAds;
+  els.adRail.hidden = !prefs.showAds;
 }

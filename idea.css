@@ -254,29 +254,6 @@ button { background: none; border: none; cursor: pointer; }
 .btn-danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
 .btn-danger:hover { background: rgba(255, 107, 107, 0.14); }
 
-/* ================= 区切りドット ================= */
-.dots {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  padding: 14px 0;
-}
-
-.dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #b9c6d2;
-}
-
-.dots span:nth-child(1) { opacity: 0.6; }
-.dots span:nth-child(3) { width: 7px; height: 7px; }
-
-.dots-sm { padding: 12px 0 2px; }
-.dots-sm span { width: 5px; height: 5px; }
-.dots-sm span:nth-child(3) { width: 5px; height: 5px; }
-
 /* ================= フィード ================= */
 .feed { border-top: 1px solid var(--line); }
 
@@ -426,7 +403,7 @@ button { background: none; border: none; cursor: pointer; }
   display: flex;
   gap: 16px;
   align-items: center;
-  padding: 8px 4px 0;
+  padding: 10px 4px 14px;
   font-size: 11px;
   color: var(--text-mute);
 }

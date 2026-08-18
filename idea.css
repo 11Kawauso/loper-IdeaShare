@@ -4,8 +4,6 @@
 
 :root {
   --bg:            #0b1a2e;
-  --bg-deep:       #071120;
-  --frame:         #a9dfe8;
   --line:          #7fc6d4;
   --line-soft:     rgba(127, 198, 212, 0.24);
   --text:          #ffffff;
@@ -29,13 +27,13 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { background: var(--bg-deep); }
+html { background: var(--bg); }
 
 body {
   font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI",
                "Meiryo", system-ui, sans-serif;
   font-size: 14px;
-  background: var(--bg-deep);
+  background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
@@ -45,15 +43,14 @@ button, input, textarea { font-family: inherit; font-size: inherit; color: inher
 input, textarea { background: none; border: none; outline: none; }
 button { background: none; border: none; cursor: pointer; }
 
-/* ================= 外枠 ================= */
+/* ================= 全体レイアウト ================= */
 .frame {
   min-height: 100vh;
-  padding: 4px;
-  background: var(--frame);
+  background: var(--bg);
 }
 
 .app {
-  min-height: calc(100vh - 8px);
+  min-height: 100vh;
   background: var(--bg);
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr) 332px;
@@ -66,8 +63,8 @@ button { background: none; border: none; cursor: pointer; }
   flex-direction: column;
   padding: 18px 14px 20px;
   position: sticky;
-  top: 4px;
-  height: calc(100vh - 8px);
+  top: 0;
+  height: 100vh;
 }
 
 .brand { display: block; margin-bottom: 26px; }
@@ -642,7 +639,6 @@ button { background: none; border: none; cursor: pointer; }
 }
 
 @media (max-width: 760px) {
-  .frame { padding: 0; background: var(--bg); }
   .app {
     grid-template-columns: 1fr;
     min-height: 100vh;

@@ -207,7 +207,10 @@ function showView(view) {
     }
   });
 
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  /* スクロールの滑らかさは CSS の scroll-behavior に任せる。
+     JS 側で behavior:'smooth' を指定すると、環境によって
+     まったくスクロールしないことがあるため使わない。 */
+  window.scrollTo(0, 0);
 
   if (view === 'notice') { markNoticesRead(); }
   if (view === 'search') { els.searchInput.focus(); }

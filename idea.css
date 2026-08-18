@@ -11,16 +11,19 @@
   --text-mute:     #6e88a0;
   --accent:        #6fd3e2;
 
-  /* 完成 = 緑 / 開発中 = 黄 */
+  /* 完成 = 緑 / 開発中 = 黄 / いいね = 赤 */
   --done:          #35d43f;
   --dev:           #d6c62c;
+  --like:          #ff4d63;
 
   /* --- 丸アイコンを画像に差し替えるときはここだけ変更する ---
      例) --icon-done: url("images/icon_done.png");
          --icon-dev:  url("images/icon_dev.png");
+         --icon-like: url("images/icon_like.png");
      画像を入れると背景色は自動的に透明になります。          */
   --icon-done:     none;
   --icon-dev:      none;
+  --icon-like:     none;
 
   --danger:        #ff6b6b;
 }
@@ -339,9 +342,11 @@ button { background: none; border: none; cursor: pointer; }
 
 .react-done .react-dot { background-color: var(--done); background-image: var(--icon-done); }
 .react-dev  .react-dot { background-color: var(--dev);  background-image: var(--icon-dev); }
+.react-like .react-dot { background-color: var(--like); background-image: var(--icon-like); }
 
 .react-done.is-on { color: var(--done); font-weight: bold; }
 .react-dev.is-on  { color: var(--dev);  font-weight: bold; }
+.react-like.is-on { color: var(--like); font-weight: bold; }
 
 .react-text {
   font-size: 12px;
@@ -437,6 +442,7 @@ button { background: none; border: none; cursor: pointer; }
 
 .legend-dot.done { background-color: var(--done); background-image: var(--icon-done); }
 .legend-dot.dev  { background-color: var(--dev);  background-image: var(--icon-dev); }
+.legend-dot.like { background-color: var(--like); background-image: var(--icon-like); }
 
 /* ================= 空表示 ================= */
 .empty {
@@ -490,6 +496,7 @@ button { background: none; border: none; cursor: pointer; }
 
 .notice-icon.done   { background-color: var(--done); background-image: var(--icon-done); }
 .notice-icon.dev    { background-color: var(--dev);  background-image: var(--icon-dev); }
+.notice-icon.like   { background-color: var(--like); background-image: var(--icon-like); }
 .notice-icon.system { background-color: var(--accent); }
 
 .notice-text { font-size: 13px; line-height: 1.7; }

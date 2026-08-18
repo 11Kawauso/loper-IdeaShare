@@ -6,6 +6,7 @@
    投稿のカウンター
      緑 = 完成した数（done）  … そのアイデアを作り終えた人の数
      黄 = 開発中の数（dev）    … そのアイデアを開発中の人の数
+     赤 = いいね（like）       … そのアイデアが欲しい人の数
    ========================================================= */
 
 'use strict';
@@ -113,10 +114,12 @@ function normalizePost(post) {
     color:    post.color || '#ffffff',
     text:     post.text || '',
     date:     post.date || '',
-    done:     typeof post.done === 'number' ? post.done : (post.likes || 0),
+    done:     typeof post.done === 'number' ? post.done : 0,
     dev:      typeof post.dev === 'number' ? post.dev : 0,
+    like:     typeof post.like === 'number' ? post.like : 0,
     myDone:   !!post.myDone,
     myDev:    !!post.myDev,
+    myLike:   !!post.myLike,
     comments: Array.isArray(post.comments) ? post.comments : [],
     mine:     !!post.mine
   };
@@ -124,17 +127,18 @@ function normalizePost(post) {
 
 /* ---- ダミー投稿 ---- */
 function seedPosts() {
+  /* [名前, 色, 本文, 日時, 完成, 開発中, いいね, コメント] */
   const data = [
-    ['ルナ｜個人開発', '#ffffff', '最強のローカルLLMほしいです', '2026年08月17日 21:40', 1, 4,
+    ['ルナ｜個人開発', '#ffffff', '最強のローカルLLMほしいです', '2026年08月17日 21:40', 1, 4, 27,
       [['こう', '#6fd3e2', '量子化すればノートPCでも動きますよ'],
        ['たかし', '#ffffff', 'メモリどれくらい要りますか？']]],
-    ['たかし', '#ffffff', '誰かUnrealのを日本語表記にするやつ作ってくれ', '2026年08月17日 18:12', 0, 6,
+    ['たかし', '#ffffff', '誰かUnrealのを日本語表記にするやつ作ってくれ', '2026年08月17日 18:12', 0, 6, 41,
       [['ルナ｜個人開発', '#ffffff', 'ブループリントのノード名だけでも需要ありそう']]],
-    ['みなと', '#8fa8ff', 'Discordの通知をまとめて要約してくれるBotがほしい。\n未読が溜まると追うのが大変なので。', '2026年08月16日 23:05', 3, 2, []],
-    ['あおい', '#c79bf0', 'Gitのコミットメッセージを自動で日本語にするCLIツール', '2026年08月16日 12:30', 2, 1,
+    ['みなと', '#8fa8ff', 'Discordの通知をまとめて要約してくれるBotがほしい。\n未読が溜まると追うのが大変なので。', '2026年08月16日 23:05', 3, 2, 18, []],
+    ['あおい', '#c79bf0', 'Gitのコミットメッセージを自動で日本語にするCLIツール', '2026年08月16日 12:30', 2, 1, 12,
       [['みなと', '#8fa8ff', 'それ普通にほしい']]],
-    ['けんと', '#ffb26b', 'スマホで撮ったホワイトボードの写真を、きれいなMarkdownに変換するアプリ', '2026年08月15日 19:48', 5, 3, []],
-    ['さくら', '#f98080', '積みゲー管理アプリ。積んだ日数とクリア率が見えると罪悪感で進むと思う。', '2026年08月14日 09:15', 1, 0, []]
+    ['けんと', '#ffb26b', 'スマホで撮ったホワイトボードの写真を、きれいなMarkdownに変換するアプリ', '2026年08月15日 19:48', 5, 3, 33, []],
+    ['さくら', '#f98080', '積みゲー管理アプリ。積んだ日数とクリア率が見えると罪悪感で進むと思う。', '2026年08月14日 09:15', 1, 0, 9, []]
   ];
 
   return data.map((row, i) => ({
@@ -145,9 +149,11 @@ function seedPosts() {
     date:  row[3],
     done:  row[4],
     dev:   row[5],
+    like:  row[6],
     myDone: false,
     myDev:  false,
-    comments: row[6].map((c) => ({ name: c[0], color: c[1], text: c[2] })),
+    myLike: false,
+    comments: row[7].map((c) => ({ name: c[0], color: c[1], text: c[2] })),
     mine:  false
   }));
 }
@@ -236,8 +242,10 @@ function bindComposer() {
       date: formatDate(new Date()),
       done: 0,
       dev: 0,
+      like: 0,
       myDone: false,
       myDev: false,
+      myLike: false,
       comments: [],
       mine: true
     });
@@ -317,8 +325,10 @@ function createPost(post) {
 
   const doneBtn = makeReact('done', post.done, post.myDone, '完成した数（クリックで自分の完成を登録）');
   const devBtn  = makeReact('dev',  post.dev,  post.myDev,  '開発中の数（クリックで自分の開発中を登録）');
+  const likeBtn = makeReact('like', post.like, post.myLike, 'いいね（このアイデアが欲しい）');
   actions.appendChild(doneBtn);
   actions.appendChild(devBtn);
+  actions.appendChild(likeBtn);
 
   const commentBtn = document.createElement('button');
   commentBtn.type = 'button';
@@ -368,6 +378,19 @@ function createPost(post) {
     savePosts();
     if (post.myDev) {
       addNotice('dev', '「' + shorten(post.text) + '」を開発中として登録しました。');
+    }
+  });
+
+  /* いいねは完成・開発中とは独立して押せる */
+  likeBtn.addEventListener('click', () => {
+    post.myLike = !post.myLike;
+    post.like += post.myLike ? 1 : -1;
+    if (post.like < 0) { post.like = 0; }
+
+    updateReact(likeBtn, post.like, post.myLike);
+    savePosts();
+    if (post.myLike && post.mine === false) {
+      addNotice('like', '「' + shorten(post.text) + '」にいいねしました。');
     }
   });
 

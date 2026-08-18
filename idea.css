@@ -331,15 +331,6 @@ button { background: none; border: none; cursor: pointer; }
 .react-dev.is-on  { color: var(--dev);  font-weight: bold; }
 .react-like.is-on { color: var(--like); font-weight: bold; }
 
-.react-text {
-  font-size: 12px;
-  color: var(--text-mute);
-  padding: 3px 8px;
-  border-radius: 999px;
-}
-
-.react-text:hover { color: var(--text); background: rgba(255, 255, 255, 0.07); }
-
 .post-delete {
   margin-left: auto;
   font-size: 11px;
@@ -349,58 +340,6 @@ button { background: none; border: none; cursor: pointer; }
 }
 
 .post-delete:hover { color: var(--danger); background: rgba(255, 107, 107, 0.1); }
-
-/* ---- コメント ---- */
-.comments {
-  margin: 10px 0 2px 16px;
-  padding-left: 12px;
-  border-left: 1px solid var(--line-soft);
-}
-
-.comment {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 6px 0;
-}
-
-.comment-body { min-width: 0; }
-.comment-name { font-size: 11px; font-weight: bold; color: var(--text-dim); }
-.comment-text {
-  font-size: 12px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.comment-form {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  padding-top: 6px;
-}
-
-.comment-form input {
-  flex: 1;
-  min-width: 0;
-  height: 30px;
-  padding: 0 11px;
-  border: 1px solid var(--line-soft);
-  border-radius: 15px;
-  font-size: 12px;
-}
-
-.comment-form input:focus { border-color: var(--line); }
-
-.comment-form button {
-  height: 28px;
-  padding: 0 13px;
-  border-radius: 14px;
-  background: var(--accent);
-  color: var(--bg);
-  font-size: 12px;
-  font-weight: bold;
-}
 
 /* ================= 凡例 ================= */
 .legend {
@@ -666,5 +605,4 @@ button { background: none; border: none; cursor: pointer; }
   .mnav-item.is-active { color: var(--accent); font-weight: bold; }
 
   .panel { padding: 14px; }
-  .comments { margin-left: 4px; }
 }

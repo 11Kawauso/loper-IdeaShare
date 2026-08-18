@@ -58,7 +58,7 @@ button { background: none; border: none; cursor: pointer; }
   min-height: 100vh;
   background: var(--bg);
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr) 332px;
+  grid-template-columns: 208px minmax(0, 1fr) 192px;
 }
 
 /* ================= サイドバー ================= */
@@ -589,37 +589,20 @@ button { background: none; border: none; cursor: pointer; }
   margin-bottom: 5px;
 }
 
-/* 300×600（ハーフページ）の広告枠。
-   広告タグは index.html の .ad-slot 内に貼り付ける。 */
+/* 160×600（ワイドスカイスクレイパー）の広告枠。
+   広告タグは index.html の .ad-slot 内に貼り付ける。
+   別サイズに変えるときは、ここと .ad-rail の幅も合わせる。 */
 .ad-slot {
-  width: 300px;
+  width: 160px;
   height: 600px;
   max-width: 100%;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--line-soft);
-  border-radius: 4px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
 }
 
-.ad-slot iframe, .ad-slot ins, .ad-slot img { max-width: 100%; border: 0; }
-
-.ad-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--text-mute);
-  font-size: 12px;
-  letter-spacing: 0.1em;
-}
-
-.ad-placeholder strong { font-size: 20px; color: var(--text-dim); font-weight: bold; }
+.ad-slot iframe, .ad-slot ins, .ad-slot img, .ad-slot div { max-width: 100%; border: 0; }
 
 /* ================= モバイルナビ ================= */
 .mobile-nav { display: none; }

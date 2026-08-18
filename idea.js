@@ -292,11 +292,44 @@ function shorten(text) {
 /* ================= 画面切り替え ================= */
 function bindNav() {
   document.querySelectorAll('[data-view]').forEach((btn) => {
-    btn.addEventListener('click', () => showView(btn.dataset.view));
+    /* ロゴを押したときだけ、滑らかに先頭へ戻す */
+    const smooth = btn.classList.contains('brand');
+    btn.addEventListener('click', () => showView(btn.dataset.view, smooth));
   });
 }
 
-function showView(view) {
+/* 先頭へスクロールする。
+   smooth = true でも、環境によっては behavior:'smooth' が
+   無視されてまったく動かないことがある。その場合に
+   途中で止まったままにならないよう、少し待って
+   位置がまったく変わっていなければ即座に移動させる。   */
+function scrollToTop(smooth) {
+  const startY = window.scrollY;
+
+  const reduceMotion = window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (!smooth || reduceMotion || startY === 0) {
+    window.scrollTo(0, 0);
+    return;
+  }
+
+  try {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (e) {
+    window.scrollTo(0, 0);
+    return;
+  }
+
+  setTimeout(() => {
+    /* まったく動いていなければ smooth が効いていない */
+    if (window.scrollY === startY && startY > 0) {
+      window.scrollTo(0, 0);
+    }
+  }, 250);
+}
+
+function showView(view, smooth) {
   currentView = view;
 
   document.querySelectorAll('.view').forEach((section) => {
@@ -312,10 +345,7 @@ function showView(view) {
     }
   });
 
-  /* スクロールの滑らかさは CSS の scroll-behavior に任せる。
-     JS 側で behavior:'smooth' を指定すると、環境によって
-     まったくスクロールしないことがあるため使わない。 */
-  window.scrollTo(0, 0);
+  scrollToTop(smooth);
 
   if (view === 'home')   { fillFeed(); }
   if (view === 'notice') { markNoticesRead(); }

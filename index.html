@@ -156,24 +156,24 @@
      idea.js は通常のスクリプトなので、ここで読み込んだ機能を
      window._fb にまとめて渡し、準備できたことを知らせる。 -->
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
   import { getAuth, signInAnonymously, onAuthStateChanged }
-    from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+    from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
   import {
     getFirestore, collection, doc, addDoc, deleteDoc, updateDoc,
     getDocs, query, orderBy, limit, startAfter,
     serverTimestamp, arrayUnion, arrayRemove
-  } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+  } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 
   /* ▼▼▼ Firebaseコンソールで作ったプロジェクトの設定をここに貼り付ける ▼▼▼
      （loper 本体とは別のプロジェクトを使う） */
   const firebaseConfig = {
-    apiKey:            "ここにapiKey",
-    authDomain:        "ここにauthDomain",
-    projectId:         "ここにprojectId",
-    storageBucket:     "ここにstorageBucket",
-    messagingSenderId: "ここにmessagingSenderId",
-    appId:             "ここにappId"
+    apiKey:            "AIzaSyDFWN_SEPDAitfS0ckCL0e4OgyzJj9kO9w",
+    authDomain:        "loper-ideashare.firebaseapp.com",
+    projectId:         "loper-ideashare",
+    storageBucket:     "loper-ideashare.firebasestorage.app",
+    messagingSenderId: "424569289382",
+    appId:             "1:424569289382:web:70ec468dbb8211edb2d267"
   };
   /* ▲▲▲ ここまで ▲▲▲ */
 

@@ -23,6 +23,9 @@
         <button type="button" class="nav-item is-active" data-view="home" aria-current="page">ホーム</button>
         <button type="button" class="nav-item" data-view="search">検索</button>
         <button type="button" class="nav-item" data-view="notice">通知<span class="nav-badge" id="noticeBadge" hidden>0</span></button>
+        <button type="button" class="nav-item" data-view="liked"><span class="nav-dot like"></span>いいねした投稿</button>
+        <button type="button" class="nav-item" data-view="dev"><span class="nav-dot dev"></span>開発中の投稿</button>
+        <button type="button" class="nav-item" data-view="done"><span class="nav-dot done"></span>完成した投稿</button>
         <button type="button" class="nav-item" data-view="settings">設定</button>
       </nav>
 
@@ -151,6 +154,27 @@
         <div class="notice-list" id="noticeList"></div>
       </section>
 
+      <!-- いいねした投稿 -->
+      <section class="view" id="view-liked">
+        <h2 class="view-title"><span class="nav-dot like"></span>いいねした投稿</h2>
+        <p class="search-hint" id="likedHint"></p>
+        <div class="feed" id="likedFeed"></div>
+      </section>
+
+      <!-- 開発中の投稿 -->
+      <section class="view" id="view-dev">
+        <h2 class="view-title"><span class="nav-dot dev"></span>開発中の投稿</h2>
+        <p class="search-hint" id="devHint"></p>
+        <div class="feed" id="devFeed"></div>
+      </section>
+
+      <!-- 完成した投稿 -->
+      <section class="view" id="view-done">
+        <h2 class="view-title"><span class="nav-dot done"></span>完成した投稿</h2>
+        <p class="search-hint" id="doneHint"></p>
+        <div class="feed" id="doneFeed"></div>
+      </section>
+
       <!-- 設定 -->
       <section class="view" id="view-settings">
         <h2 class="view-title">設定</h2>
@@ -189,6 +213,9 @@
   <button type="button" class="mnav-item is-active" data-view="home">ホーム</button>
   <button type="button" class="mnav-item" data-view="search">検索</button>
   <button type="button" class="mnav-item" data-view="notice">通知</button>
+  <button type="button" class="mnav-item" data-view="liked"><span class="nav-dot like"></span>いいね</button>
+  <button type="button" class="mnav-item" data-view="dev"><span class="nav-dot dev"></span>開発中</button>
+  <button type="button" class="mnav-item" data-view="done"><span class="nav-dot done"></span>完成</button>
   <button type="button" class="mnav-item" data-view="settings">設定</button>
 </nav>
 

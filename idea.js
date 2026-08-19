@@ -144,6 +144,12 @@ function cacheElements() {
   els.searchHint     = document.getElementById('searchHint');
   els.noticeList     = document.getElementById('noticeList');
   els.noticeBadge    = document.getElementById('noticeBadge');
+  els.likedFeed      = document.getElementById('likedFeed');
+  els.likedHint      = document.getElementById('likedHint');
+  els.devFeed        = document.getElementById('devFeed');
+  els.devHint        = document.getElementById('devHint');
+  els.doneFeed       = document.getElementById('doneFeed');
+  els.doneHint       = document.getElementById('doneHint');
   els.userBack       = document.getElementById('userBack');
   els.userAvatar     = document.getElementById('userAvatar');
   els.userName       = document.getElementById('userName');
@@ -367,6 +373,7 @@ function showView(view, smooth) {
 
   if (view === 'home')   { fillFeed(); }
   if (view === 'notice') { loadNotices().then(markNoticesRead); }
+  if (REACTED[view])     { loadReacted(view); }
   if (view === 'search') { els.searchInput.focus(); }
 }
 
@@ -927,6 +934,42 @@ async function runSearch() {
 
   els.searchHint.textContent = hits.length + ' 件見つかりました。';
   paintPosts(els.searchResults, hits, '一致する投稿はありません。');
+}
+
+/* ================= 反応した投稿の一覧 =================
+   いいね・開発中・完成のそれぞれについて、自分のUIDが
+   入っている投稿を集める。array-contains は単独の絞り込みなので
+   複合インデックスは要らないが、並び替えはできないため
+   取得してから画面側で新しい順にしている。                    */
+
+const REACTED = {
+  liked: { field: 'likeBy', label: 'いいねした投稿' },
+  dev:   { field: 'devBy',  label: '開発中の投稿' },
+  done:  { field: 'doneBy', label: '完成した投稿' }
+};
+
+async function loadReacted(view) {
+  const conf = REACTED[view];
+  if (!conf || !fb || !myUid) { return; }
+
+  const feed = els[view + 'Feed'];
+  const hint = els[view + 'Hint'];
+  hint.textContent = '読み込み中…';
+
+  try {
+    const snap = await fb.getDocs(fb.query(
+      fb.collection(fb.db, 'ideas'),
+      fb.where(conf.field, 'array-contains', myUid),
+      fb.limit(SEARCH_LIMIT)
+    ));
+
+    const list = snap.docs.map(toPost).sort((a, b) => b.at - a.at);
+    hint.textContent = list.length + ' 件';
+    paintPosts(feed, list, conf.label + 'はまだありません。');
+  } catch (e) {
+    console.error(e);
+    hint.textContent = '読み込めませんでした。';
+  }
 }
 
 /* ================= 通知 =================

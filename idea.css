@@ -81,10 +81,14 @@ button { background: none; border: none; cursor: pointer; }
   flex-direction: column;
   gap: 2px;
   padding-top: 8px;
+  overflow-y: auto;   /* 画面が低いときでも全項目に届くように */
 }
 
 .nav-item {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   width: 100%;
   text-align: left;
   padding: 9px 14px;
@@ -93,7 +97,24 @@ button { background: none; border: none; cursor: pointer; }
   letter-spacing: 0.04em;
   color: var(--text-dim);
   transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
 }
+
+/* ナビと見出しに置く色つきの丸。
+   投稿の丸と同じ変数を使うので、画像に差し替えると一緒に変わる。 */
+.nav-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.nav-dot.like { background-color: var(--like); background-image: var(--icon-like); }
+.nav-dot.dev  { background-color: var(--dev);  background-image: var(--icon-dev); }
+.nav-dot.done { background-color: var(--done); background-image: var(--icon-done); }
 
 .nav-item:hover { background: rgba(111, 211, 226, 0.1); color: var(--text); }
 
@@ -185,6 +206,9 @@ button { background: none; border: none; cursor: pointer; }
 }
 
 .view-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 16px;
   font-weight: bold;
   letter-spacing: 0.05em;
@@ -703,7 +727,7 @@ button { background: none; border: none; cursor: pointer; }
 
   .mobile-nav {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     position: fixed;
     left: 0;
     right: 0;
@@ -714,10 +738,18 @@ button { background: none; border: none; cursor: pointer; }
   }
 
   .mnav-item {
-    padding: 11px 4px;
-    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 9px 2px;
+    font-size: 11px;
+    line-height: 1.3;
     color: var(--text-dim);
   }
+
+  .mnav-item .nav-dot { width: 8px; height: 8px; }
 
   .mnav-item.is-active { color: var(--accent); font-weight: bold; }
 

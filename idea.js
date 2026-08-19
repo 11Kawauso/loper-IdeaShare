@@ -512,7 +512,9 @@ function paintPosts(container, list, emptyText) {
 
 /* ================= 投稿メニュー（…） ================= */
 
-function makePostMenu(post) {
+/* 投稿の右上に置く「…」メニュー。
+   自分の投稿なら「削除する」、他人の投稿なら「通報する」を出す。 */
+function makePostMenu(post, card) {
   const wrap = document.createElement('div');
   wrap.className = 'post-menu-wrap';
 
@@ -531,28 +533,51 @@ function makePostMenu(post) {
   menu.hidden = true;
   menu.setAttribute('role', 'menu');
 
-  const report = document.createElement('button');
-  report.type = 'button';
-  report.className = 'post-menu-item is-danger';
-  report.setAttribute('role', 'menuitem');
-  report.textContent = '通報する';
-  report.addEventListener('click', () => {
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = 'post-menu-item is-danger';
+  item.setAttribute('role', 'menuitem');
+  item.textContent = post.mine ? '削除する' : '通報する';
+  item.addEventListener('click', () => {
     closeAllPostMenus();
-    reportPost(post);
+    if (post.mine) { deletePost(post, card); }
+    else           { reportPost(post); }
   });
-  menu.appendChild(report);
+  menu.appendChild(item);
 
   btn.addEventListener('click', () => {
     const willOpen = menu.hidden;
     closeAllPostMenus();
     menu.hidden = !willOpen;
     btn.setAttribute('aria-expanded', String(willOpen));
-    if (willOpen) { report.focus(); }
+    if (willOpen) { item.focus(); }
   });
 
   wrap.appendChild(btn);
   wrap.appendChild(menu);
   return wrap;
+}
+
+/* 自分の投稿を削除する */
+async function deletePost(post, card) {
+  if (!confirm('この投稿を削除しますか？')) { return; }
+
+  try {
+    await fb.deleteDoc(fb.doc(fb.db, 'ideas', post.id));
+  } catch (e) {
+    console.error(e);
+    alert('削除できませんでした。通信環境を確認してください。');
+    return;
+  }
+
+  posts = posts.filter((p) => p.id !== post.id);
+  searchCache = null;
+  card.remove();
+
+  if (posts.length === 0) {
+    showFeedMessage('まだアイデアが投稿されていません。\n最初の投稿者になりましょう。');
+  }
+  fillFeed();
 }
 
 function closeAllPostMenus() {
@@ -627,10 +652,7 @@ function createPost(post) {
   date.textContent = post.date;
   head.appendChild(date);
 
-  /* 自分の投稿には出さない（自分で通報する意味がないため） */
-  if (!post.mine) {
-    head.appendChild(makePostMenu(post));
-  }
+  head.appendChild(makePostMenu(post, card));
 
   card.appendChild(head);
 
@@ -647,35 +669,6 @@ function createPost(post) {
   addReactCounters(actions, post);
 
   card.appendChild(actions);
-
-  /* --- 削除（自分の投稿のみ） --- */
-  if (post.mine) {
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'post-delete';
-    del.textContent = '削除';
-    del.addEventListener('click', async () => {
-      if (!confirm('この投稿を削除しますか？')) { return; }
-
-      try {
-        await fb.deleteDoc(fb.doc(fb.db, 'ideas', post.id));
-      } catch (e) {
-        console.error(e);
-        alert('削除できませんでした。通信環境を確認してください。');
-        return;
-      }
-
-      posts = posts.filter((p) => p.id !== post.id);
-      searchCache = null;
-      card.remove();
-
-      if (posts.length === 0) {
-        showFeedMessage('まだアイデアが投稿されていません。\n最初の投稿者になりましょう。');
-      }
-      fillFeed();
-    });
-    actions.appendChild(del);
-  }
 
   return card;
 }

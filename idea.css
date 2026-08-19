@@ -405,16 +405,6 @@ button { background: none; border: none; cursor: pointer; }
 .react-dev.is-on  { color: var(--dev);  font-weight: bold; }
 .react-like.is-on { color: var(--like); font-weight: bold; }
 
-.post-delete {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--text-mute);
-  padding: 3px 7px;
-  border-radius: 7px;
-}
-
-.post-delete:hover { color: var(--danger); background: rgba(255, 107, 107, 0.1); }
-
 /* ================= 凡例 ================= */
 .legend {
   display: flex;

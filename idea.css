@@ -161,6 +161,13 @@ button { background: none; border: none; cursor: pointer; }
 .avatar-sm { width: 22px; height: 22px; font-size: 10px; }
 .avatar-lg { width: 64px; height: 64px; font-size: 26px; }
 
+/* 画像アイコンのとき。文字は入れずに画像を敷き詰める */
+.avatar.has-image {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
 /* ================= メイン ================= */
 .main {
   padding: 18px 26px 48px;
@@ -493,12 +500,22 @@ button { background: none; border: none; cursor: pointer; }
 }
 
 .notice-icon.done   { background-color: var(--done); background-image: var(--icon-done); }
-.notice-icon.dev    { background-color: var(--dev);  background-image: var(--icon-dev); }
 .notice-icon.like   { background-color: var(--like); background-image: var(--icon-like); }
-.notice-icon.system { background-color: var(--accent); }
 
+.notice-body { min-width: 0; }
 .notice-text { font-size: 13px; line-height: 1.7; }
-.notice-date { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
+.notice-who { font-weight: bold; }
+
+.notice-idea {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-date { font-size: 11px; color: var(--text-mute); margin-top: 3px; }
 .notice.is-unread { background: rgba(111, 211, 226, 0.06); }
 
 /* ================= プロフィール ================= */
@@ -572,6 +589,15 @@ button { background: none; border: none; cursor: pointer; }
 
 .field input:focus { border-color: var(--accent); }
 
+.avatar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.field-note {
+  font-size: 11px;
+  color: var(--text-mute);
+  line-height: 1.7;
+  margin-top: 8px;
+}
+
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .swatch {
@@ -587,34 +613,6 @@ button { background: none; border: none; cursor: pointer; }
 .swatch.is-on { border-color: var(--bg); outline: 2px solid var(--accent); }
 
 .saved-msg { margin-left: 10px; font-size: 12px; color: var(--done); }
-
-/* ---- トグル ---- */
-.toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
-
-.toggle-track {
-  width: 38px;
-  height: 22px;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.18);
-  padding: 3px;
-  transition: background 0.18s;
-  flex-shrink: 0;
-}
-
-.toggle-knob {
-  display: block;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.18s;
-}
-
-.toggle input:checked + .toggle-track { background: var(--accent); }
-.toggle input:checked + .toggle-track .toggle-knob { transform: translateX(16px); }
-.toggle input:focus-visible + .toggle-track { outline: 2px solid var(--accent); outline-offset: 2px; }
-.toggle-label { font-size: 13px; }
 
 /* ================= 広告エリア ================= */
 .ad-rail { padding: 18px 16px 32px; }

@@ -16,8 +16,6 @@
 'use strict';
 
 const KEY_PROFILE = 'loper_profile';
-const KEY_NOTICES = 'loper_notices';
-const KEY_PREFS   = 'loper_prefs';
 const KEY_REPORTS = 'loper_reports';
 const MAX_TEXT    = 300;
 
@@ -30,6 +28,16 @@ const LOAD_MARGIN  = 300;
    直近この件数だけ取ってきて画面側で絞り込む */
 const SEARCH_LIMIT = 300;
 
+/* 一度に取得する通知の件数 */
+const NOTICE_LIMIT = 100;
+
+/* アイコン画像は正方形に切り抜いてこの大きさに縮小する。
+   投稿ごとに複製して保存するため、軽さを優先している。 */
+const AVATAR_SIZE    = 96;
+const AVATAR_QUALITY = 0.7;
+const AVATAR_MAX_IN  = 12 * 1024 * 1024;   /* 読み込む元画像の上限 */
+const AVATAR_MAX_OUT = 200000;             /* 保存する文字数の上限（ルールと合わせる） */
+
 const AVATAR_COLORS = [
   '#ffffff', '#6fd3e2', '#35d43f', '#d6c62c',
   '#f98080', '#c79bf0', '#8fa8ff', '#ffb26b'
@@ -37,8 +45,7 @@ const AVATAR_COLORS = [
 
 let posts   = [];
 let notices = [];
-let profile = { name: 'name', color: '#ffffff' };
-let prefs   = { showAds: true };
+let profile = { name: 'name', color: '#ffffff', avatar: '' };
 let currentView = 'home';
 
 /* Firestore の読み込み状態 */
@@ -82,7 +89,6 @@ function start() {
   bindSettings();
   bindPostMenuDismiss();
   applyProfile();
-  applyPrefs();
   renderNotices();
   setupInfiniteScroll();
 
@@ -111,6 +117,7 @@ function connect() {
 
     myUid = user.uid;
     reloadFeed();
+    loadNotices();
   });
 
   fb.signInAnonymously(fb.auth).catch((e) => {
@@ -138,12 +145,14 @@ function cacheElements() {
   els.profileAvatar  = document.getElementById('profileAvatar');
   els.profilePreviewName = document.getElementById('profilePreviewName');
   els.nameInput      = document.getElementById('nameInput');
+  els.avatarFile     = document.getElementById('avatarFile');
+  els.avatarPick     = document.getElementById('avatarPick');
+  els.avatarClear    = document.getElementById('avatarClear');
+  els.avatarNote     = document.getElementById('avatarNote');
   els.swatches       = document.getElementById('swatches');
   els.saveProfile    = document.getElementById('saveProfile');
   els.savedMsg       = document.getElementById('savedMsg');
-  els.toggleAds      = document.getElementById('toggleAds');
   els.clearData      = document.getElementById('clearData');
-  els.adRail         = document.getElementById('adRail');
 }
 
 /* ================= 端末内の保存 ================= */
@@ -165,12 +174,8 @@ function write(key, value) {
 }
 
 function loadLocal() {
-  notices = read(KEY_NOTICES, []);
-  profile = Object.assign({ name: 'name', color: '#ffffff' }, read(KEY_PROFILE, {}));
-  prefs   = Object.assign({ showAds: true }, read(KEY_PREFS, {}));
+  profile = Object.assign({ name: 'name', color: '#ffffff', avatar: '' }, read(KEY_PROFILE, {}));
 }
-
-const saveNotices = () => write(KEY_NOTICES, notices);
 
 /* ================= Firestore の読み書き ================= */
 
@@ -186,6 +191,7 @@ function toPost(snap) {
     authorUid: d.authorUid,
     name:   d.authorName || 'name',
     color:  d.authorColor || '#ffffff',
+    avatar: d.authorAvatar || '',
     text:   d.text || '',
     /* 投稿直後はサーバー時刻がまだ入っていないことがある */
     date:   d.createdAt && d.createdAt.toDate ? formatDate(d.createdAt.toDate()) : 'たった今',
@@ -265,12 +271,27 @@ function initialOf(name) {
   return (name || '?').trim().charAt(0) || '?';
 }
 
-function makeAvatar(name, color, small) {
+function makeAvatar(name, color, small, avatar) {
   const el = document.createElement('span');
   el.className = 'avatar' + (small ? ' avatar-sm' : '');
-  el.style.background = color || '#ffffff';
-  el.textContent = initialOf(name);
+  paintAvatarEl(el, name, color, avatar);
   return el;
+}
+
+/* 画像があれば画像を、無ければ色＋頭文字を表示する */
+function paintAvatarEl(el, name, color, avatar) {
+  if (avatar) {
+    el.classList.add('has-image');
+    el.textContent = '';
+    el.style.background = '';
+    /* データURLをそのまま入れるので、念のため文字列として囲む */
+    el.style.backgroundImage = 'url(' + JSON.stringify(avatar) + ')';
+  } else {
+    el.classList.remove('has-image');
+    el.style.backgroundImage = '';
+    el.style.background = color || '#ffffff';
+    el.textContent = initialOf(name);
+  }
 }
 
 function shorten(text) {
@@ -336,7 +357,7 @@ function showView(view, smooth) {
   scrollToTop(smooth);
 
   if (view === 'home')   { fillFeed(); }
-  if (view === 'notice') { markNoticesRead(); }
+  if (view === 'notice') { loadNotices().then(markNoticesRead); }
   if (view === 'search') { els.searchInput.focus(); }
 }
 
@@ -375,6 +396,7 @@ function bindComposer() {
         authorUid:   myUid,
         authorName:  profile.name || 'name',
         authorColor: profile.color,
+        authorAvatar: profile.avatar || '',
         text:        text,
         createdAt:   fb.serverTimestamp(),
         likeBy:      [],
@@ -386,7 +408,6 @@ function bindComposer() {
       resetCounter();
       openComposer(false);
 
-      addNotice('system', 'アイデアを投稿しました。');
       searchCache = null;
       reloadFeed();
       scrollToTop(false);
@@ -594,7 +615,7 @@ function createPost(post) {
   /* --- ヘッダー --- */
   const head = document.createElement('div');
   head.className = 'post-head';
-  head.appendChild(makeAvatar(post.name, post.color));
+  head.appendChild(makeAvatar(post.name, post.color, false, post.avatar));
 
   const name = document.createElement('span');
   name.className = 'post-name';
@@ -701,9 +722,7 @@ function addReactCounters(actions, post) {
     redraw();
     saveReaction(post, changes, redraw, backup);
 
-    if (post.myDone) {
-      addNotice('done', '「' + shorten(post.text) + '」を完成として登録しました。');
-    }
+    if (post.myDone) { sendNotice(post, 'done'); }
   });
 
   devBtn.addEventListener('click', () => {
@@ -723,9 +742,7 @@ function addReactCounters(actions, post) {
     redraw();
     saveReaction(post, changes, redraw, backup);
 
-    if (post.myDev) {
-      addNotice('dev', '「' + shorten(post.text) + '」を開発中として登録しました。');
-    }
+    /* 「開発中」は相手に通知しない */
   });
 
   /* いいねは完成・開発中とは独立して押せる */
@@ -739,9 +756,7 @@ function addReactCounters(actions, post) {
       { likeBy: post.myLike ? fb.arrayUnion(myUid) : fb.arrayRemove(myUid) },
       redraw, backup);
 
-    if (post.myLike) {
-      addNotice('like', '「' + shorten(post.text) + '」にいいねしました。');
-    }
+    if (post.myLike) { sendNotice(post, 'like'); }
   });
 }
 
@@ -862,18 +877,74 @@ async function runSearch() {
   paintPosts(els.searchResults, hits, '一致する投稿はありません。');
 }
 
-/* ================= 通知 ================= */
-function addNotice(kind, text) {
-  notices.unshift({
-    id: Date.now() + Math.random(),
-    kind: kind,
-    text: text,
-    date: formatDate(new Date()),
-    unread: true
-  });
-  notices = notices.slice(0, 50);
-  saveNotices();
+/* ================= 通知 =================
+   他人のアイデアに「いいね」「完成」を押すと、
+   押した人が投稿者あての通知を作る。
+   （「開発中」は通知しない）
+
+   ドキュメントIDを「アイデアID_自分のUID_種類」に固定しているので、
+   付け外しを繰り返しても通知は増えず、上書きになる。      */
+
+function noticeId(ideaId, kind) {
+  return ideaId + '_' + myUid + '_' + kind;
+}
+
+async function sendNotice(post, kind) {
+  if (!fb || !myUid || post.mine) { return; }
+
+  try {
+    await fb.setDoc(fb.doc(fb.db, 'notifications', noticeId(post.id, kind)), {
+      toUid:     post.authorUid,
+      fromUid:   myUid,
+      fromName:  profile.name || 'name',
+      fromColor: profile.color,
+      kind:      kind,
+      ideaId:    post.id,
+      ideaText:  post.text,
+      createdAt: fb.serverTimestamp(),
+      read:      false
+    });
+  } catch (e) {
+    /* 通知が送れなくても反応自体は成立しているので、画面には出さない */
+    console.error(e);
+  }
+}
+
+/* 自分あての通知を取得する。
+   並び替えを Firestore 側で行うと複合インデックスが必要になるため、
+   取得後に画面側で新しい順に並べている。                        */
+async function loadNotices() {
+  if (!fb || !myUid) { return; }
+
+  try {
+    const snap = await fb.getDocs(fb.query(
+      fb.collection(fb.db, 'notifications'),
+      fb.where('toUid', '==', myUid),
+      fb.limit(NOTICE_LIMIT)
+    ));
+
+    notices = snap.docs.map((d) => {
+      const n = d.data();
+      return {
+        id:        d.id,
+        kind:      n.kind,
+        fromName:  n.fromName || 'name',
+        fromColor: n.fromColor || '#ffffff',
+        ideaText:  n.ideaText || '',
+        at:        n.createdAt && n.createdAt.toDate ? n.createdAt.toDate() : new Date(0),
+        unread:    n.read === false
+      };
+    }).sort((a, b) => b.at - a.at);
+  } catch (e) {
+    console.error(e);
+    notices = [];
+  }
+
   renderNotices();
+}
+
+function noticeLabel(kind) {
+  return kind === 'done' ? 'あなたのアイデアを完成させました' : 'あなたのアイデアにいいねしました';
 }
 
 function renderNotices() {
@@ -884,31 +955,44 @@ function renderNotices() {
     empty.className = 'empty';
     empty.textContent = '通知はまだありません。';
     els.noticeList.appendChild(empty);
-  } else {
-    notices.forEach((n) => {
-      const row = document.createElement('div');
-      row.className = 'notice' + (n.unread ? ' is-unread' : '');
-
-      const icon = document.createElement('span');
-      icon.className = 'notice-icon ' + n.kind;
-      row.appendChild(icon);
-
-      const body = document.createElement('div');
-
-      const text = document.createElement('div');
-      text.className = 'notice-text';
-      text.textContent = n.text;
-      body.appendChild(text);
-
-      const date = document.createElement('div');
-      date.className = 'notice-date';
-      date.textContent = n.date;
-      body.appendChild(date);
-
-      row.appendChild(body);
-      els.noticeList.appendChild(row);
-    });
+    updateBadge();
+    return;
   }
+
+  notices.forEach((n) => {
+    const row = document.createElement('div');
+    row.className = 'notice' + (n.unread ? ' is-unread' : '');
+
+    const icon = document.createElement('span');
+    icon.className = 'notice-icon ' + n.kind;
+    row.appendChild(icon);
+
+    const body = document.createElement('div');
+    body.className = 'notice-body';
+
+    const text = document.createElement('div');
+    text.className = 'notice-text';
+
+    const who = document.createElement('span');
+    who.className = 'notice-who';
+    who.textContent = n.fromName;
+    text.appendChild(who);
+    text.appendChild(document.createTextNode(' さんが' + noticeLabel(n.kind)));
+    body.appendChild(text);
+
+    const idea = document.createElement('div');
+    idea.className = 'notice-idea';
+    idea.textContent = '「' + shorten(n.ideaText) + '」';
+    body.appendChild(idea);
+
+    const date = document.createElement('div');
+    date.className = 'notice-date';
+    date.textContent = n.at.getTime() ? formatDate(n.at) : '';
+    body.appendChild(date);
+
+    row.appendChild(body);
+    els.noticeList.appendChild(row);
+  });
 
   updateBadge();
 }
@@ -919,11 +1003,21 @@ function updateBadge() {
   els.noticeBadge.textContent = unread;
 }
 
-function markNoticesRead() {
-  if (!notices.some((n) => n.unread)) { return; }
-  notices.forEach((n) => { n.unread = false; });
-  saveNotices();
+/* 通知画面を開いたら既読にする */
+async function markNoticesRead() {
+  const unread = notices.filter((n) => n.unread);
+  if (unread.length === 0 || !fb) { return; }
+
+  unread.forEach((n) => { n.unread = false; });
   renderNotices();
+
+  try {
+    await Promise.all(unread.map((n) =>
+      fb.updateDoc(fb.doc(fb.db, 'notifications', n.id), { read: true })
+    ));
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 /* ================= 設定 ================= */
@@ -952,32 +1046,109 @@ function highlightSwatch() {
 
 function bindSettings() {
   els.nameInput.addEventListener('input', previewProfile);
+  bindAvatarPicker();
 
   els.saveProfile.addEventListener('click', () => {
     profile.name = els.nameInput.value.trim() || 'name';
     write(KEY_PROFILE, profile);
     applyProfile();
 
+    els.avatarNote.textContent = '中央を正方形に切り抜いて縮小して保存します。';
     els.savedMsg.hidden = false;
     setTimeout(() => { els.savedMsg.hidden = true; }, 2000);
   });
 
-  els.toggleAds.addEventListener('change', () => {
-    prefs.showAds = els.toggleAds.checked;
-    write(KEY_PREFS, prefs);
-    applyPrefs();
-  });
-
   els.clearData.addEventListener('click', () => {
-    const msg = 'この端末に保存されている表示名・通知・設定を削除します。'
+    const msg = 'この端末に保存されている表示名とアイコンを削除します。'
       + String.fromCharCode(10) + '投稿したアイデアは消えません。'
       + String.fromCharCode(10, 10) + 'よろしいですか？';
     if (!confirm(msg)) { return; }
 
-    [KEY_NOTICES, KEY_PROFILE, KEY_PREFS, KEY_REPORTS].forEach((k) => {
+    [KEY_PROFILE, KEY_REPORTS].forEach((k) => {
       try { localStorage.removeItem(k); } catch (e) { /* noop */ }
     });
     location.reload();
+  });
+}
+
+/* ---- アイコン画像 ---- */
+function bindAvatarPicker() {
+  els.avatarPick.addEventListener('click', () => els.avatarFile.click());
+
+  els.avatarClear.addEventListener('click', () => {
+    profile.avatar = '';
+    els.avatarFile.value = '';
+    els.avatarNote.textContent = '画像を外しました。保存すると反映されます。';
+    previewProfile();
+  });
+
+  els.avatarFile.addEventListener('change', async () => {
+    const file = els.avatarFile.files && els.avatarFile.files[0];
+    if (!file) { return; }
+
+    if (file.type.indexOf('image/') !== 0) {
+      els.avatarNote.textContent = '画像ファイルを選んでください。';
+      return;
+    }
+    if (file.size > AVATAR_MAX_IN) {
+      els.avatarNote.textContent = 'ファイルが大きすぎます（12MBまで）。';
+      return;
+    }
+
+    els.avatarNote.textContent = '読み込み中…';
+
+    try {
+      const dataUrl = await shrinkImage(file, AVATAR_SIZE, AVATAR_QUALITY);
+
+      if (dataUrl.length > AVATAR_MAX_OUT) {
+        els.avatarNote.textContent = 'この画像は保存できませんでした。別の画像でお試しください。';
+        return;
+      }
+
+      profile.avatar = dataUrl;
+      els.avatarNote.textContent = '画像を読み込みました。保存すると反映されます。';
+      previewProfile();
+    } catch (e) {
+      console.error(e);
+      els.avatarNote.textContent = '画像を読み込めませんでした。別の画像でお試しください。';
+    }
+  });
+}
+
+/* 画像の中央を正方形に切り抜き、size×size に縮小して
+   データURL（文字列）にする。この文字列をそのまま保存する。 */
+function shrinkImage(file, size, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error('ファイルを読めません'));
+    reader.onload = () => {
+      const img = new Image();
+
+      img.onerror = () => reject(new Error('画像として読めません'));
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+
+          const ctx = canvas.getContext('2d');
+          /* 短い辺を基準に中央を切り抜く（縦横比を崩さない） */
+          const side = Math.min(img.width, img.height);
+          const sx = (img.width - side) / 2;
+          const sy = (img.height - side) / 2;
+          ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch (e) {
+          reject(e);
+        }
+      };
+
+      img.src = reader.result;
+    };
+
+    reader.readAsDataURL(file);
   });
 }
 
@@ -988,22 +1159,17 @@ function previewProfile() {
 
 function paintProfile(name, color) {
   [els.myAvatar, els.composerAvatar, els.profileAvatar].forEach((el) => {
-    el.textContent = initialOf(name);
-    el.style.background = color;
+    paintAvatarEl(el, name, color, profile.avatar);
   });
   els.myName.textContent = name;
   els.profilePreviewName.textContent = name;
+  els.avatarClear.hidden = !profile.avatar;
 }
 
 function applyProfile() {
   els.nameInput.value = profile.name === 'name' ? '' : profile.name;
   paintProfile(profile.name, profile.color);
   highlightSwatch();
-}
-
-function applyPrefs() {
-  els.toggleAds.checked = prefs.showAds;
-  els.adRail.hidden = !prefs.showAds;
 }
 
 /* ================= 動作確認用 =================
@@ -1034,6 +1200,7 @@ window.seedIdeas = async function () {
       authorUid:   myUid,
       authorName:  profile.name || 'name',
       authorColor: profile.color,
+      authorAvatar: profile.avatar || '',
       text:        text,
       createdAt:   fb.serverTimestamp(),
       likeBy:      [],

@@ -37,10 +37,12 @@ service cloud.firestore {
         return d.authorUid is string
           && d.authorName is string && d.authorName.size() > 0 && d.authorName.size() <= 20
           && d.authorColor is string && d.authorColor.size() <= 20
+          // アイコン画像はデータURLの文字列として持つ（未設定なら空文字）
+          && d.authorAvatar is string && d.authorAvatar.size() <= 200000
           && d.text is string && d.text.size() > 0 && d.text.size() <= 300
           && d.likeBy is list && d.doneBy is list && d.devBy is list
-          && d.keys().hasOnly(['authorUid', 'authorName', 'authorColor', 'text',
-                               'createdAt', 'likeBy', 'doneBy', 'devBy']);
+          && d.keys().hasOnly(['authorUid', 'authorName', 'authorColor', 'authorAvatar',
+                               'text', 'createdAt', 'likeBy', 'doneBy', 'devBy']);
       }
 
       /* 反応の更新。変更してよいのは3つの配列だけで、
@@ -71,6 +73,46 @@ service cloud.firestore {
               && oldArr.hasAll(newArr)
               && oldArr.hasOnly(newArr.concat([request.auth.uid])));
       }
+    }
+
+    /* 通知。他人のアイデアに「いいね」「完成」を押したとき、
+       押した人が投稿者あての通知を作る。
+
+       ドキュメントIDを「アイデアID_押した人のUID_種類」に固定することで、
+       同じ人が同じ反応を付け外ししても通知が増えないようにしている。
+
+       閲覧・既読・削除は受け取った本人のみ。 */
+    match /notifications/{notifId} {
+      allow read: if request.auth != null && resource.data.toUid == request.auth.uid;
+
+      /* 押した人が作る（付け直したときは上書きになる） */
+      allow create, update: if request.auth != null
+        && request.resource.data.fromUid == request.auth.uid
+        // 自分あての通知は作れない
+        && request.resource.data.toUid != request.auth.uid
+        && request.resource.data.kind in ['like', 'done']
+        // IDと中身がずれていると重複を防げなくなるため、必ず対応させる
+        && notifId == request.resource.data.ideaId + '_' + request.auth.uid + '_' + request.resource.data.kind
+        && request.resource.data.ideaId is string
+        && request.resource.data.ideaText is string && request.resource.data.ideaText.size() <= 300
+        && request.resource.data.fromName is string && request.resource.data.fromName.size() <= 20
+        && request.resource.data.fromColor is string && request.resource.data.fromColor.size() <= 20
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.read == false
+        && request.resource.data.keys().hasOnly(['toUid', 'fromUid', 'fromName', 'fromColor',
+                                                 'kind', 'ideaId', 'ideaText', 'createdAt', 'read'])
+        // 宛先が本当にそのアイデアの投稿者かを確認する。
+        // 無関係な相手に通知を送りつけられるのを防ぐ。
+        && get(/databases/$(database)/documents/ideas/$(request.resource.data.ideaId)).data.authorUid
+             == request.resource.data.toUid;
+
+      /* 受け取った本人が既読にする */
+      allow update: if request.auth != null
+        && resource.data.toUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+
+      allow delete: if request.auth != null && resource.data.toUid == request.auth.uid;
     }
 
     /* 通報。ログインユーザーが自分のUIDで作成のみ可能。

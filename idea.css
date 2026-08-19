@@ -228,7 +228,13 @@ button { background: none; border: none; cursor: pointer; }
   background: var(--bg);
   margin: -18px -26px 0;
   padding: 18px 26px 0;
+  /* 投稿欄と投稿一覧の境目。固定エリア側に持たせているので、
+     スクロールしても線が画面上部に残る。 */
+  border-bottom: 1px solid var(--line);
 }
+
+/* 上の線と二重にならないよう、直後のフィードの線は消す */
+.feed-top + .feed { border-top: none; }
 
 /* ================= 投稿フォーム ================= */
 .composer { margin-bottom: 2px; }

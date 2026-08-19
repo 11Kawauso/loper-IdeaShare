@@ -47,6 +47,7 @@ let posts   = [];
 let notices = [];
 let profile = { name: 'name', color: '#ffffff', avatar: '' };
 let currentView = 'home';
+let backView    = 'home';   /* 他人のプロフィールから戻る先 */
 
 /* Firestore の読み込み状態 */
 let fb        = null;   /* window._fb */
@@ -88,6 +89,7 @@ function start() {
   bindSearch();
   bindSettings();
   bindPostMenuDismiss();
+  els.userBack.addEventListener('click', () => showView(backView));
   applyProfile();
   renderNotices();
   setupInfiniteScroll();
@@ -142,6 +144,11 @@ function cacheElements() {
   els.searchHint     = document.getElementById('searchHint');
   els.noticeList     = document.getElementById('noticeList');
   els.noticeBadge    = document.getElementById('noticeBadge');
+  els.userBack       = document.getElementById('userBack');
+  els.userAvatar     = document.getElementById('userAvatar');
+  els.userName       = document.getElementById('userName');
+  els.userCount      = document.getElementById('userCount');
+  els.userFeed       = document.getElementById('userFeed');
   els.profileAvatar  = document.getElementById('profileAvatar');
   els.profilePreviewName = document.getElementById('profilePreviewName');
   els.nameInput      = document.getElementById('nameInput');
@@ -195,6 +202,8 @@ function toPost(snap) {
     text:   d.text || '',
     /* 投稿直後はサーバー時刻がまだ入っていないことがある */
     date:   d.createdAt && d.createdAt.toDate ? formatDate(d.createdAt.toDate()) : 'たった今',
+    /* 画面側で並び替えるための日時（数値） */
+    at:     d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().getTime() : 0,
     likeBy: likeBy,
     doneBy: doneBy,
     devBy:  devBy,
@@ -640,12 +649,21 @@ function createPost(post) {
   /* --- ヘッダー --- */
   const head = document.createElement('div');
   head.className = 'post-head';
-  head.appendChild(makeAvatar(post.name, post.color, false, post.avatar));
+
+  /* アイコンと名前を押すと、その人のプロフィールへ */
+  const author = document.createElement('button');
+  author.type = 'button';
+  author.className = 'post-author';
+  author.title = post.name + ' のプロフィール';
+  author.appendChild(makeAvatar(post.name, post.color, false, post.avatar));
 
   const name = document.createElement('span');
   name.className = 'post-name';
   name.textContent = post.name;
-  head.appendChild(name);
+  author.appendChild(name);
+
+  author.addEventListener('click', () => openUserProfile(post));
+  head.appendChild(author);
 
   const date = document.createElement('span');
   date.className = 'post-date';
@@ -820,6 +838,47 @@ function makeReact(kind, count, on, label, interactive) {
 function updateReact(btn, count, on) {
   btn.querySelector('.react-count').textContent = count;
   btn.classList.toggle('is-on', on);
+}
+
+/* ================= 投稿者のプロフィール =================
+   アイコンや名前を押したときに開く。その人の投稿を一覧する。
+   並び替えを Firestore 側で行うと複合インデックスが必要になるため、
+   取得してから画面側で新しい順に並べている。                     */
+
+function openUserProfile(post) {
+  /* 自分の投稿なら、編集できる自分のプロフィールへ */
+  if (post.mine) { showView('profile'); return; }
+
+  backView = (currentView === 'user') ? backView : currentView;
+
+  paintAvatarEl(els.userAvatar, post.name, post.color, post.avatar);
+  els.userName.textContent = post.name;
+  els.userCount.textContent = '読み込み中…';
+  els.userFeed.innerHTML = '';
+
+  showView('user');
+  loadUserPosts(post.authorUid);
+}
+
+async function loadUserPosts(uid) {
+  if (!fb || !myUid) { return; }
+
+  try {
+    const snap = await fb.getDocs(fb.query(
+      fb.collection(fb.db, 'ideas'),
+      fb.where('authorUid', '==', uid),
+      fb.limit(SEARCH_LIMIT)
+    ));
+
+    /* 取得順は不定なので、投稿日時で新しい順に並べ直す */
+    const list = snap.docs.map(toPost).sort((a, b) => b.at - a.at);
+
+    els.userCount.textContent = list.length + ' 件のアイデアを投稿しています。';
+    paintPosts(els.userFeed, list, 'まだアイデアを投稿していません。');
+  } catch (e) {
+    console.error(e);
+    els.userCount.textContent = '投稿を読み込めませんでした。';
+  }
 }
 
 /* ================= 検索 =================

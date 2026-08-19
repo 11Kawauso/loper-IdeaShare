@@ -1,0 +1,88 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* アイデア投稿。
+       閲覧は誰でも可能（ログインしていなくても読める）。
+       作成は本人のUIDで、削除は投稿者本人のみ。
+       更新は「反応（いいね・完成・開発中）の付け外し」だけを許可し、
+       本文や投稿者の書き換えはできない。 */
+    match /ideas/{ideaId} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && isValidIdea()
+        // 投稿日時はサーバー側の時刻に固定する。
+        // クライアントが未来の日時を指定して一覧の先頭に居座るのを防ぐ。
+        && request.resource.data.createdAt == request.time
+        // 作成時点では誰も反応していない
+        && request.resource.data.likeBy.size() == 0
+        && request.resource.data.doneBy.size() == 0
+        && request.resource.data.devBy.size() == 0;
+
+      allow update: if isValidReactionToggle();
+
+      allow delete: if isSignedIn() && resource.data.authorUid == request.auth.uid;
+
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      /* 保存される投稿の各項目が、画面の入力制限と同じ範囲に収まっているか検証する。
+         クライアントを改造して巨大なデータや不正な値を送られるのを防ぐ。 */
+      function isValidIdea() {
+        let d = request.resource.data;
+        return d.authorUid is string
+          && d.authorName is string && d.authorName.size() > 0 && d.authorName.size() <= 20
+          && d.authorColor is string && d.authorColor.size() <= 20
+          && d.text is string && d.text.size() > 0 && d.text.size() <= 300
+          && d.likeBy is list && d.doneBy is list && d.devBy is list
+          && d.keys().hasOnly(['authorUid', 'authorName', 'authorColor', 'text',
+                               'createdAt', 'likeBy', 'doneBy', 'devBy']);
+      }
+
+      /* 反応の更新。変更してよいのは3つの配列だけで、
+         それぞれ「自分のUIDを1つ足す」か「1つ外す」しかできない。
+         他人のUIDを勝手に足したり、数を水増ししたりはできない。 */
+      function isValidReactionToggle() {
+        let d = request.resource.data;
+        let p = resource.data;
+        return isSignedIn()
+          // 自分の投稿には反応できない
+          && p.authorUid != request.auth.uid
+          && d.diff(p).affectedKeys().hasOnly(['likeBy', 'doneBy', 'devBy'])
+          && toggledByMe(p.likeBy, d.likeBy)
+          && toggledByMe(p.doneBy, d.doneBy)
+          && toggledByMe(p.devBy,  d.devBy)
+          // 「完成」と「開発中」は同時に立てられない
+          && !(d.doneBy.hasAny([request.auth.uid]) && d.devBy.hasAny([request.auth.uid]));
+      }
+
+      /* 配列の変化が「変化なし」「自分のUIDが1つ増えた」
+         「自分のUIDが1つ減った」のいずれかであることを確認する。 */
+      function toggledByMe(oldArr, newArr) {
+        return newArr == oldArr
+          || (newArr.size() == oldArr.size() + 1
+              && newArr.hasAll(oldArr)
+              && newArr.hasOnly(oldArr.concat([request.auth.uid])))
+          || (oldArr.size() == newArr.size() + 1
+              && oldArr.hasAll(newArr)
+              && oldArr.hasOnly(newArr.concat([request.auth.uid])));
+      }
+    }
+
+    /* 通報。ログインユーザーが自分のUIDで作成のみ可能。
+       閲覧・更新・削除はクライアントから行わない
+       （Firebaseコンソールから運営が確認する）。 */
+    match /reports/{reportId} {
+      allow create: if request.auth != null
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.ideaId is string
+        && request.resource.data.createdAt == request.time;
+
+      allow read, update, delete: if false;
+    }
+  }
+}

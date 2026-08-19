@@ -1,28 +1,34 @@
 /* =========================================================
    loper - IdeaShare  /  script
-   ※ サーバーを持たないため、データはこの端末の
-     localStorage にのみ保存されます。
+
+   アイデアの投稿は Firestore に保存され、全員で共有される。
+   ログインは匿名ログイン（登録なしで書き込めるようにするため）。
+   表示名・通知・広告の設定だけは端末内（localStorage）に保存する。
 
    投稿のカウンター
-     緑 = 完成した数（done）  … そのアイデアを作り終えた人の数
-     黄 = 開発中の数（dev）    … そのアイデアを開発中の人の数
-     赤 = いいね（like）       … そのアイデアが欲しい人の数
+     緑 = 完成した数（doneBy）  … そのアイデアを作り終えた人
+     黄 = 開発中の数（devBy）    … そのアイデアを開発中の人
+     赤 = いいね（likeBy）       … そのアイデアが欲しい人
+   件数は配列の長さで数える。こうするとルール側で
+   「自分のUIDを1つ足す／外す」以外を弾けるので、水増しできない。
    ========================================================= */
 
 'use strict';
 
-const KEY_POSTS   = 'loper_ideas';
 const KEY_PROFILE = 'loper_profile';
 const KEY_NOTICES = 'loper_notices';
 const KEY_PREFS   = 'loper_prefs';
-const KEY_SEEDED  = 'loper_seeded';
 const KEY_REPORTS = 'loper_reports';
 const MAX_TEXT    = 300;
 
-/* 無限スクロールで一度に追加する件数と、
+/* 無限スクロールで一度に読み込む件数と、
    末尾がこの距離まで近づいたら次を読み込む（px） */
 const PAGE_SIZE    = 10;
 const LOAD_MARGIN  = 300;
+
+/* 検索は Firestore で部分一致ができないため、
+   直近この件数だけ取ってきて画面側で絞り込む */
+const SEARCH_LIMIT = 300;
 
 const AVATAR_COLORS = [
   '#ffffff', '#6fd3e2', '#35d43f', '#d6c62c',
@@ -34,26 +40,84 @@ let notices = [];
 let profile = { name: 'name', color: '#ffffff' };
 let prefs   = { showAds: true };
 let currentView = 'home';
-let feedShown   = 0;   /* フィードに描画済みの件数 */
+
+/* Firestore の読み込み状態 */
+let fb        = null;   /* window._fb */
+let myUid     = null;
+let lastDoc   = null;   /* 続きを読むための位置 */
+let allLoaded = false;
+let loading   = false;
+let loadError = false;
+let searchCache = null;
 
 const els = {};
 
-/* ================= 起動 ================= */
+/* ================= 起動 =================
+   画面の準備（DOMContentLoaded）と Firebase の準備
+   （firebase-ready）は順番が前後しうるので、両方
+   揃ってから開始する。                              */
+
+let domReady = false;
+let fbReady  = false;
+
 document.addEventListener('DOMContentLoaded', () => {
+  domReady = true;
+  start();
+});
+
+document.addEventListener('firebase-ready', () => {
+  fbReady = true;
+  start();
+});
+
+function start() {
+  if (!domReady || !fbReady || els.feed) { return; }
+
   cacheElements();
-  loadAll();
+  loadLocal();
   buildSwatches();
   bindNav();
   bindComposer();
   bindSearch();
   bindSettings();
+  bindPostMenuDismiss();
   applyProfile();
   applyPrefs();
-  renderFeed();
-  setupInfiniteScroll();
-  bindPostMenuDismiss();
   renderNotices();
-});
+  setupInfiniteScroll();
+
+  connect();
+}
+
+/* 匿名ログインしてから最初のページを読み込む */
+function connect() {
+  fb = window._fb || null;
+
+  if (!window._fbConfigured) {
+    showFeedMessage('Firebase の設定がまだです。\nindex.html の firebaseConfig を設定してください。');
+    return;
+  }
+
+  if (!fb) {
+    showFeedMessage('Firebase を読み込めませんでした。\n通信環境を確認して再読み込みしてください。');
+    return;
+  }
+
+  showFeedMessage('読み込み中…');
+
+  fb.onAuthStateChanged(fb.auth, (user) => {
+    if (!user) { return; }
+    if (myUid === user.uid) { return; }
+
+    myUid = user.uid;
+    reloadFeed();
+  });
+
+  fb.signInAnonymously(fb.auth).catch((e) => {
+    console.error(e);
+    showFeedMessage('ログインできませんでした。\nFirebaseコンソールで匿名ログインを有効にしてください。');
+  });
+}
 
 function cacheElements() {
   els.myAvatar       = document.getElementById('myAvatar');
@@ -80,7 +144,7 @@ function cacheElements() {
   els.adRail         = document.getElementById('adRail');
 }
 
-/* ================= 保存・読み込み ================= */
+/* ================= 端末内の保存 ================= */
 function read(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -98,175 +162,95 @@ function write(key, value) {
   }
 }
 
-function loadAll() {
-  const stored = read(KEY_POSTS, null);
+function loadLocal() {
   notices = read(KEY_NOTICES, []);
   profile = Object.assign({ name: 'name', color: '#ffffff' }, read(KEY_PROFILE, {}));
   prefs   = Object.assign({ showAds: true }, read(KEY_PREFS, {}));
-
-  let savedSignature = null;
-  try { savedSignature = localStorage.getItem(KEY_SEEDED); } catch (e) { /* noop */ }
-
-  const signature = seedSignature();
-
-  if (!Array.isArray(stored)) {
-    /* 初回アクセス */
-    posts = seedPosts();
-  } else if (savedSignature !== signature) {
-    /* ダミー投稿の内容が変わっている（＝サイトを更新した）。
-       古いダミーが残ったままにならないよう作り直す。 */
-    posts = refreshSeed(stored.map(normalizePost));
-  } else {
-    posts = stored.map(normalizePost);
-  }
-
-  if (savedSignature !== signature) {
-    write(KEY_POSTS, posts);
-    try { localStorage.setItem(KEY_SEEDED, signature); } catch (e) { /* noop */ }
-  }
 }
 
-/* ダミー投稿の中身から作る短い識別子。
-   SEED_DATA を書き換えると自動的に変わるので、
-   バージョン番号を手で上げる必要がない。            */
-function seedSignature() {
-  const src = JSON.stringify(SEED_DATA) + JSON.stringify(NAMES);
-  let hash = 0;
-  for (let i = 0; i < src.length; i++) {
-    hash = (hash * 31 + src.charCodeAt(i)) | 0;
-  }
-  return 'seed' + hash;
-}
+const saveNotices = () => write(KEY_NOTICES, notices);
 
-/* ダミー投稿を新しいものに入れ替える。
-   自分の投稿と、自分が押した反応は引き継ぐ。 */
-function refreshSeed(oldPosts) {
-  const mine   = oldPosts.filter((p) => p.mine);
-  const before = new Map(oldPosts.map((p) => [p.text, p]));
+/* ================= Firestore の読み書き ================= */
 
-  const fresh = seedPosts().map((post) => {
-    const old = before.get(post.text);
-    if (!old) { return post; }
+/* Firestore のドキュメントを、画面が扱いやすい形に変換する */
+function toPost(snap) {
+  const d = snap.data();
+  const likeBy = d.likeBy || [];
+  const doneBy = d.doneBy || [];
+  const devBy  = d.devBy  || [];
 
-    /* 保存されている件数には自分のぶんが含まれていないので、
-       押していた反応は +1 して復元する */
-    if (old.myDone) { post.myDone = true; post.done += 1; }
-    if (old.myDev)  { post.myDev  = true; post.dev  += 1; }
-    if (old.myLike) { post.myLike = true; post.like += 1; }
-    return post;
-  });
-
-  return mine.concat(fresh);
-}
-
-function normalizePost(post) {
   return {
-    id:       post.id,
-    name:     post.name || 'name',
-    color:    post.color || '#ffffff',
-    text:     post.text || '',
-    date:     post.date || '',
-    done:     typeof post.done === 'number' ? post.done : 0,
-    dev:      typeof post.dev === 'number' ? post.dev : 0,
-    like:     typeof post.like === 'number' ? post.like : 0,
-    myDone:   !!post.myDone,
-    myDev:    !!post.myDev,
-    myLike:   !!post.myLike,
-    mine:     !!post.mine
+    id:     snap.id,
+    authorUid: d.authorUid,
+    name:   d.authorName || 'name',
+    color:  d.authorColor || '#ffffff',
+    text:   d.text || '',
+    /* 投稿直後はサーバー時刻がまだ入っていないことがある */
+    date:   d.createdAt && d.createdAt.toDate ? formatDate(d.createdAt.toDate()) : 'たった今',
+    likeBy: likeBy,
+    doneBy: doneBy,
+    devBy:  devBy,
+    like:   likeBy.length,
+    done:   doneBy.length,
+    dev:    devBy.length,
+    myLike: likeBy.indexOf(myUid) !== -1,
+    myDone: doneBy.indexOf(myUid) !== -1,
+    myDev:  devBy.indexOf(myUid) !== -1,
+    mine:   d.authorUid === myUid
   };
 }
 
-/* ================= ダミー投稿 =================
-   本番では Firestore から取得する部分。
-   投稿者の名前・色は NAMES から番号で参照する。         */
-
-const NAMES = [
-  ['ルナ｜個人開発', '#ffffff'], ['たかし', '#ffffff'],     ['みなと', '#8fa8ff'],
-  ['あおい', '#c79bf0'],        ['けんと', '#ffb26b'],     ['さくら', '#f98080'],
-  ['こう', '#6fd3e2'],          ['ゆい', '#35d43f'],       ['そうた', '#d6c62c'],
-  ['りん', '#ff4d63'],          ['はると', '#8fa8ff'],     ['なぎ', '#ffffff'],
-  ['しおり', '#c79bf0'],        ['とうま', '#ffb26b'],     ['めい', '#f98080'],
-  ['かえで', '#35d43f'],        ['ゆうき', '#6fd3e2'],     ['あさひ', '#8fa8ff'],
-  ['のぞみ', '#d6c62c'],        ['ちひろ', '#c79bf0']
-];
-
-/* [投稿者, 本文, 何時間前, 完成, 開発中, いいね] */
-const SEED_DATA = [
-  [0, "最強のローカルLLMほしいです", 0, 1, 4, 27],
-  [1, "誰かUnrealのを日本語表記にするやつ作ってくれ", 3, 0, 6, 41],
-  [2, "Discordの通知をまとめて要約してくれるBotがほしい。\n未読が溜まると追うのが大変なので。", 22, 3, 2, 18],
-  [3, "Gitのコミットメッセージを自動で日本語にするCLIツール", 33, 2, 1, 12],
-  [4, "スマホで撮ったホワイトボードの写真を、きれいなMarkdownに変換するアプリ", 50, 5, 3, 33],
-  [5, "積みゲー管理アプリ。積んだ日数とクリア率が見えると罪悪感で進むと思う。", 84, 1, 0, 9],
-  [7, "Unityで買ったまま使ってないアセットを一覧にしてくれるツールがほしい", 96, 2, 5, 38],
-  [8, "ドット絵を1枚描いたら、歩行アニメのコマを自動生成してくれるやつ", 104, 4, 7, 62],
-  [9, "個人開発の進捗を晒すだけのSNSが欲しい。完成しなくても許される場所。", 112, 1, 3, 55],
-  [10, "動画に音声を入れると、字幕とテロップを自動で付けてくれる編集ツール", 126, 6, 4, 47],
-  [11, "タブが増えすぎたときに自動でグループ分けしてくれるブラウザ拡張", 138, 8, 2, 29],
-  [12, "学生向けの時間割アプリ。既存のは広告が多すぎて使う気になれない。", 150, 3, 6, 44],
-  [13, "ゲーム実況の録画から、盛り上がった場面だけ切り抜いてくれるAI", 163, 0, 9, 71],
-  [14, "VRChatのワールドをスマホから下見できるサイト", 175, 1, 2, 23],
-  [15, "締め切りを入れると、勝手に逆算してタスクを刻んでくれるアプリ", 188, 5, 3, 36],
-  [16, "RPGツクールの無料素材をまとめて検索できるサイトがほしい", 199, 2, 4, 31],
-  [17, "書いたコードの解説を音声で読み上げてくれるやつ。通学中に復習したい。", 212, 1, 1, 19],
-  [18, "レシートを撮るだけで全部入力してくれる家計簿アプリ", 224, 7, 3, 40],
-  [19, "Steamのウィッシュリストが値下げされたら通知してくれるやつ、誰か作ってない？", 236, 9, 1, 52],
-  [0, "3Dモデルを読み込むと、自動でポリゴン数を減らしてくれるWebツール", 249, 3, 5, 34],
-  [2, "個人開発したアプリを晒して感想をもらえる場所がほしい", 261, 2, 2, 26],
-  [4, "寝落ちを検知して勝手に止まってくれる動画プレイヤー作ってほしい", 273, 4, 2, 58],
-  [6, "環境構築の手順を書くと、そのままDockerfileにしてくれるやつ", 286, 6, 4, 37],
-  [8, "ゲームジャム用に、お題をランダムで出してくれるサイト", 298, 11, 2, 45],
-  [10, "読んだ技術書の内容をカード化して、あとで復習できるアプリ", 311, 3, 3, 28],
-  [12, "配信のコメントを翻訳して読み上げてくれるツール", 323, 2, 6, 39],
-  [14, "画像からフォントを判別してくれるサイト、日本語対応のやつ", 336, 5, 1, 33],
-  [16, "自分が書いたコード量の成長がグラフで見えるやつ", 348, 8, 2, 24],
-  [18, "Blenderのショートカットを練習できるゲーム", 361, 1, 4, 42],
-  [1, "一人用のスクラム管理アプリ。チーム用のは重すぎる。", 373, 4, 3, 30],
-  [3, "音ゲーの譜面を自作して共有できるサイト", 386, 2, 7, 49],
-  [5, "通学中に見るだけで英単語を覚えられる縦型動画を、自動生成するやつ", 398, 0, 3, 27],
-  [7, "絵の練習記録を残して、上達が目に見えるアプリ", 411, 6, 2, 35],
-  [9, "誰かMinecraftの建築を自動で採寸してくれるMod作って", 423, 1, 1, 21],
-  [11, "部屋を撮ると家具の配置を提案してくれるアプリ", 436, 3, 4, 32],
-  [13, "アイデアを話すだけで仕様書にしてくれるツール", 448, 2, 8, 66],
-  [15, "GitHubのIssueをカンバンで見られる、とにかく軽いサイト", 461, 7, 2, 38],
-  [17, "効果音を口で言うと、近い音を探してくれる検索エンジン", 473, 1, 5, 57],
-  [19, "サークルのシフト調整、LINEだけで完結してほしい", 486, 5, 1, 22],
-  [0, "ノベルゲームのシナリオを分岐図で書けるエディタ", 498, 4, 6, 51],
-  [2, "自分の声を学習して、ナレーションにしてくれるやつ", 511, 2, 3, 43],
-  [4, "プログラミング初心者用の、エラーメッセージ翻訳サイト", 523, 12, 2, 68],
-  [6, "撮りためた写真から、自動でVlogに繋いでくれるアプリ", 536, 3, 4, 29],
-  [8, "個人開発の収益を晒し合う掲示板", 548, 6, 1, 25],
-  [10, "ゲームのセーブデータをクラウド同期する汎用ツール", 561, 2, 3, 31],
-  [12, "手書きの数式を読み取ってLaTeXにしてくれるやつ", 573, 9, 2, 46],
-  [14, "積んだ技術書を管理して、読む順番まで提案してくれるアプリ", 586, 1, 2, 20],
-  [16, "日本語のフリーフォントだけ集めたサイトが欲しい", 598, 4, 1, 37]
-];
-
-function seedPosts() {
-  /* 「今」に依存しない基準日時から、各投稿の日時を逆算する */
-  const base = new Date(2026, 7, 17, 21, 40);
-
-  return SEED_DATA.map((row, i) => {
-    const author = NAMES[row[0]];
-    return {
-      id:     2000 + (SEED_DATA.length - i),
-      name:   author[0],
-      color:  author[1],
-      text:   row[1],
-      date:   formatDate(new Date(base.getTime() - row[2] * 3600000)),
-      done:   row[3],
-      dev:    row[4],
-      like:   row[5],
-      myDone: false,
-      myDev:  false,
-      myLike: false,
-      mine:   false
-    };
-  });
+function ideasQuery(after) {
+  const base = [fb.collection(fb.db, 'ideas'), fb.orderBy('createdAt', 'desc')];
+  if (after) { base.push(fb.startAfter(after)); }
+  base.push(fb.limit(PAGE_SIZE));
+  return fb.query.apply(null, base);
 }
 
-const savePosts   = () => write(KEY_POSTS, posts);
-const saveNotices = () => write(KEY_NOTICES, notices);
+/* 先頭から読み直す */
+function reloadFeed() {
+  posts = [];
+  lastDoc = null;
+  allLoaded = false;
+  loadError = false;
+  searchCache = null;
+  els.feed.innerHTML = '';
+  loadNextPage();
+}
+
+async function loadNextPage() {
+  if (!fb || !myUid || loading || allLoaded || loadError) { return; }
+
+  loading = true;
+  updateFeedEnd();
+
+  try {
+    const snap = await fb.getDocs(ideasQuery(lastDoc));
+
+    if (snap.empty) {
+      allLoaded = true;
+    } else {
+      lastDoc = snap.docs[snap.docs.length - 1];
+      if (snap.docs.length < PAGE_SIZE) { allLoaded = true; }
+
+      const fresh = snap.docs.map(toPost);
+      posts = posts.concat(fresh);
+      appendPosts(fresh);
+    }
+  } catch (e) {
+    console.error(e);
+    loadError = true;
+  }
+
+  loading = false;
+
+  if (posts.length === 0 && !loadError) {
+    showFeedMessage('まだアイデアが投稿されていません。\n最初の投稿者になりましょう。');
+  }
+
+  updateFeedEnd();
+  fillFeed();
+}
 
 /* ================= 共通ユーティリティ ================= */
 function formatDate(date) {
@@ -370,33 +354,46 @@ function bindComposer() {
       (len >= MAX_TEXT ? ' at-limit' : len >= MAX_TEXT - 50 ? ' near-limit' : '');
   });
 
-  els.form.addEventListener('submit', (e) => {
+  els.form.addEventListener('submit', async (e) => {
     e.preventDefault();
+
     const text = els.textInput.value.trim();
     if (!text) { return; }
 
-    posts.unshift({
-      id: Date.now(),
-      name: profile.name || 'name',
-      color: profile.color,
-      text: text,
-      date: formatDate(new Date()),
-      done: 0,
-      dev: 0,
-      like: 0,
-      myDone: false,
-      myDev: false,
-      myLike: false,
-      mine: true
-    });
+    if (!fb || !myUid) {
+      alert('サーバーに接続できていません。少し待ってから試してください。');
+      return;
+    }
 
-    savePosts();
-    addNotice('system', 'アイデアを投稿しました。');
-    renderFeed();
+    const submitBtn = els.form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
 
-    els.form.reset();
-    resetCounter();
-    openComposer(false);
+    try {
+      await fb.addDoc(fb.collection(fb.db, 'ideas'), {
+        authorUid:   myUid,
+        authorName:  profile.name || 'name',
+        authorColor: profile.color,
+        text:        text,
+        createdAt:   fb.serverTimestamp(),
+        likeBy:      [],
+        doneBy:      [],
+        devBy:       []
+      });
+
+      els.form.reset();
+      resetCounter();
+      openComposer(false);
+
+      addNotice('system', 'アイデアを投稿しました。');
+      searchCache = null;
+      reloadFeed();
+      scrollToTop(false);
+    } catch (err) {
+      console.error(err);
+      alert('投稿できませんでした。通信環境を確認してください。');
+    }
+
+    submitBtn.disabled = false;
   });
 }
 
@@ -412,66 +409,52 @@ function resetCounter() {
 }
 
 /* ================= フィード描画 =================
-   フィードは PAGE_SIZE 件ずつ描画し、末尾（feedEnd）が
-   画面に入ったら続きを追加する（無限スクロール）。     */
+   Firestore から PAGE_SIZE 件ずつ取得し、末尾（feedEnd）が
+   画面に近づいたら続きを読み込む（無限スクロール）。   */
 
-function renderFeed(keepShown) {
-  /* keepShown = true のときは、いま表示している件数を保ったまま描き直す。
-     削除のあとに先頭まで戻ってしまうのを防ぐため。 */
-  const want = Math.min(keepShown ? Math.max(feedShown, PAGE_SIZE) : PAGE_SIZE, posts.length);
+function appendPosts(list) {
+  /* メッセージだけが入っている状態なら消す */
+  const msg = els.feed.querySelector('.empty');
+  if (msg) { msg.remove(); }
 
-  els.feed.innerHTML = '';
-  feedShown = 0;
-
-  if (posts.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    empty.style.whiteSpace = 'pre-line';
-    empty.textContent = 'まだアイデアが投稿されていません。\n最初の投稿者になりましょう。';
-    els.feed.appendChild(empty);
-  } else {
-    appendPosts(want);
-  }
-
-  updateFeedEnd();
-  fillFeed();
-  if (currentView === 'search') { runSearch(); }
+  const frag = document.createDocumentFragment();
+  list.forEach((post) => frag.appendChild(createPost(post)));
+  els.feed.appendChild(frag);
 }
 
-/* 続きを count 件ぶん追加する（すでに描画済みのものは触らない） */
-function appendPosts(count) {
-  const next = posts.slice(feedShown, feedShown + count);
-  const frag = document.createDocumentFragment();
-  next.forEach((post) => frag.appendChild(createPost(post)));
-  els.feed.appendChild(frag);
-  feedShown += next.length;
+function showFeedMessage(text) {
+  els.feed.innerHTML = '';
+  const empty = document.createElement('div');
+  empty.className = 'empty';
+  empty.style.whiteSpace = 'pre-line';
+  empty.textContent = text;
+  els.feed.appendChild(empty);
   updateFeedEnd();
 }
 
 function updateFeedEnd() {
+  if (loadError) {
+    els.feedEnd.textContent = '読み込みに失敗しました';
+    return;
+  }
   if (posts.length === 0) {
     els.feedEnd.textContent = '';
     return;
   }
-  els.feedEnd.textContent = feedShown < posts.length
-    ? '読み込み中…'
-    : 'すべての投稿を表示しました';
+  els.feedEnd.textContent = loading ? '読み込み中…'
+    : allLoaded ? 'すべての投稿を表示しました'
+    : '';
 }
 
-/* 末尾が画面に近づいている間、続きを読み込む。
-   1回の描画で画面が埋まらない場合もあるので、埋まるまで繰り返す。
-   （IntersectionObserver は描画が止まっている環境で発火しないことが
-     あるため、確実に動くスクロール位置の判定を使っている）        */
+/* 末尾が画面に近づいていれば続きを読み込む */
 function fillFeed() {
   if (currentView !== 'home') { return; }
+  if (!fb || !myUid || loading || allLoaded || loadError) { return; }
 
-  /* 想定外の状況で無限ループにならないよう回数を制限する */
-  for (let guard = 0; guard < 50; guard++) {
-    if (feedShown >= posts.length) { return; }
-    const top = els.feedEnd.getBoundingClientRect().top;
-    if (top > window.innerHeight + LOAD_MARGIN) { return; }
-    appendPosts(PAGE_SIZE);
-  }
+  const top = els.feedEnd.getBoundingClientRect().top;
+  if (top > window.innerHeight + LOAD_MARGIN) { return; }
+
+  loadNextPage();
 }
 
 function setupInfiniteScroll() {
@@ -487,8 +470,6 @@ function setupInfiniteScroll() {
     }, { rootMargin: LOAD_MARGIN + 'px 0px' });
     observer.observe(els.feedEnd);
   }
-
-  fillFeed();
 }
 
 function paintPosts(container, list, emptyText) {
@@ -571,12 +552,12 @@ function bindPostMenuDismiss() {
   });
 }
 
-/* 通報。サーバーが無いため、いまは端末内に記録するだけ。
-   本番では Firestore の reports コレクションに書き込む。 */
-function reportPost(post) {
+/* 通報。二重通報を防ぐため、通報済みの投稿は端末内にも記録しておく
+   （reports コレクションはクライアントから読めないため） */
+async function reportPost(post) {
   const reports = read(KEY_REPORTS, []);
 
-  if (reports.some((r) => r.postId === post.id)) {
+  if (reports.some((r) => r.ideaId === post.id)) {
     alert('この投稿は既に通報済みです。');
     return;
   }
@@ -584,13 +565,22 @@ function reportPost(post) {
   const label = 'この投稿を通報しますか？' + String.fromCharCode(10, 10) + '「' + shorten(post.text) + '」';
   if (!confirm(label)) { return; }
 
-  reports.unshift({
-    postId: post.id,
-    name: post.name,
-    text: post.text,
-    date: formatDate(new Date())
-  });
-  write(KEY_REPORTS, reports.slice(0, 100));
+  try {
+    await fb.addDoc(fb.collection(fb.db, 'reports'), {
+      reporterUid: myUid,
+      ideaId:      post.id,
+      authorUid:   post.authorUid,
+      text:        post.text,
+      createdAt:   fb.serverTimestamp()
+    });
+  } catch (e) {
+    console.error(e);
+    alert('通報を送信できませんでした。通信環境を確認してください。');
+    return;
+  }
+
+  reports.unshift({ ideaId: post.id, date: formatDate(new Date()) });
+  write(KEY_REPORTS, reports.slice(0, 200));
 
   alert('通報を受け付けました。ご協力ありがとうございます。');
 }
@@ -641,11 +631,25 @@ function createPost(post) {
     del.type = 'button';
     del.className = 'post-delete';
     del.textContent = '削除';
-    del.addEventListener('click', () => {
+    del.addEventListener('click', async () => {
       if (!confirm('この投稿を削除しますか？')) { return; }
+
+      try {
+        await fb.deleteDoc(fb.doc(fb.db, 'ideas', post.id));
+      } catch (e) {
+        console.error(e);
+        alert('削除できませんでした。通信環境を確認してください。');
+        return;
+      }
+
       posts = posts.filter((p) => p.id !== post.id);
-      savePosts();
-      renderFeed(true);
+      searchCache = null;
+      card.remove();
+
+      if (posts.length === 0) {
+        showFeedMessage('まだアイデアが投稿されていません。\n最初の投稿者になりましょう。');
+      }
+      fillFeed();
     });
     actions.appendChild(del);
   }
@@ -671,38 +675,52 @@ function addReactCounters(actions, post) {
   actions.appendChild(devBtn);
   actions.appendChild(likeBtn);
 
+  const redraw = () => {
+    updateReact(doneBtn, post.done, post.myDone);
+    updateReact(devBtn,  post.dev,  post.myDev);
+    updateReact(likeBtn, post.like, post.myLike);
+  };
+
   /* 完成 / 開発中 は排他。完成にすると開発中は外れる */
   doneBtn.addEventListener('click', () => {
-    post.myDone = !post.myDone;
-    post.done += post.myDone ? 1 : -1;
-    if (post.done < 0) { post.done = 0; }
+    const backup = snapshotReaction(post);
+    const wasDev = post.myDev;
+    const changes = {};
 
-    if (post.myDone && post.myDev) {
+    post.myDone = !post.myDone;
+    changes.doneBy = post.myDone ? fb.arrayUnion(myUid) : fb.arrayRemove(myUid);
+
+    if (post.myDone && wasDev) {
       post.myDev = false;
-      post.dev = Math.max(0, post.dev - 1);
-      updateReact(devBtn, post.dev, false);
+      changes.devBy = fb.arrayRemove(myUid);
     }
 
-    updateReact(doneBtn, post.done, post.myDone);
-    savePosts();
+    applyCounts(post);
+    redraw();
+    saveReaction(post, changes, redraw, backup);
+
     if (post.myDone) {
       addNotice('done', '「' + shorten(post.text) + '」を完成として登録しました。');
     }
   });
 
   devBtn.addEventListener('click', () => {
-    post.myDev = !post.myDev;
-    post.dev += post.myDev ? 1 : -1;
-    if (post.dev < 0) { post.dev = 0; }
+    const backup = snapshotReaction(post);
+    const wasDone = post.myDone;
+    const changes = {};
 
-    if (post.myDev && post.myDone) {
+    post.myDev = !post.myDev;
+    changes.devBy = post.myDev ? fb.arrayUnion(myUid) : fb.arrayRemove(myUid);
+
+    if (post.myDev && wasDone) {
       post.myDone = false;
-      post.done = Math.max(0, post.done - 1);
-      updateReact(doneBtn, post.done, false);
+      changes.doneBy = fb.arrayRemove(myUid);
     }
 
-    updateReact(devBtn, post.dev, post.myDev);
-    savePosts();
+    applyCounts(post);
+    redraw();
+    saveReaction(post, changes, redraw, backup);
+
     if (post.myDev) {
       addNotice('dev', '「' + shorten(post.text) + '」を開発中として登録しました。');
     }
@@ -710,16 +728,59 @@ function addReactCounters(actions, post) {
 
   /* いいねは完成・開発中とは独立して押せる */
   likeBtn.addEventListener('click', () => {
+    const backup = snapshotReaction(post);
     post.myLike = !post.myLike;
-    post.like += post.myLike ? 1 : -1;
-    if (post.like < 0) { post.like = 0; }
 
-    updateReact(likeBtn, post.like, post.myLike);
-    savePosts();
+    applyCounts(post);
+    redraw();
+    saveReaction(post,
+      { likeBy: post.myLike ? fb.arrayUnion(myUid) : fb.arrayRemove(myUid) },
+      redraw, backup);
+
     if (post.myLike) {
       addNotice('like', '「' + shorten(post.text) + '」にいいねしました。');
     }
   });
+}
+
+/* 自分の反応の有無に合わせて、手元のUID一覧と件数を作り直す */
+function applyCounts(post) {
+  const setMine = (arr, on) => {
+    const without = arr.filter((uid) => uid !== myUid);
+    return on ? without.concat([myUid]) : without;
+  };
+
+  post.likeBy = setMine(post.likeBy, post.myLike);
+  post.doneBy = setMine(post.doneBy, post.myDone);
+  post.devBy  = setMine(post.devBy,  post.myDev);
+
+  post.like = post.likeBy.length;
+  post.done = post.doneBy.length;
+  post.dev  = post.devBy.length;
+}
+
+/* 押す前の状態を控えておく。保存に失敗したときの戻し先になる。 */
+function snapshotReaction(post) {
+  return {
+    myLike: post.myLike, myDone: post.myDone, myDev: post.myDev,
+    likeBy: post.likeBy.slice(), doneBy: post.doneBy.slice(), devBy: post.devBy.slice()
+  };
+}
+
+/* 反応を保存する。画面はすでに更新済みなので、
+   失敗したときだけ押す前の状態に戻す。            */
+async function saveReaction(post, changes, redraw, backup) {
+  try {
+    await fb.updateDoc(fb.doc(fb.db, 'ideas', post.id), changes);
+  } catch (e) {
+    console.error(e);
+    Object.assign(post, backup);
+    post.like = post.likeBy.length;
+    post.done = post.doneBy.length;
+    post.dev  = post.devBy.length;
+    redraw();
+    alert('反応を保存できませんでした。通信環境を確認してください。');
+  }
 }
 
 /* interactive に false を渡すと、押せない表示専用の要素を作る */
@@ -751,12 +812,14 @@ function updateReact(btn, count, on) {
   btn.classList.toggle('is-on', on);
 }
 
-/* ================= 検索 ================= */
+/* ================= 検索 =================
+   Firestore は本文の部分一致検索ができないため、
+   直近 SEARCH_LIMIT 件を取ってきて画面側で絞り込む。 */
 function bindSearch() {
   els.searchInput.addEventListener('input', runSearch);
 }
 
-function runSearch() {
+async function runSearch() {
   const q = els.searchInput.value.trim().toLowerCase();
 
   if (!q) {
@@ -765,7 +828,31 @@ function runSearch() {
     return;
   }
 
-  const hits = posts.filter((p) =>
+  if (!fb || !myUid) {
+    els.searchHint.textContent = 'サーバーに接続できていません。';
+    return;
+  }
+
+  if (!searchCache) {
+    els.searchHint.textContent = '検索中…';
+    try {
+      const snap = await fb.getDocs(fb.query(
+        fb.collection(fb.db, 'ideas'),
+        fb.orderBy('createdAt', 'desc'),
+        fb.limit(SEARCH_LIMIT)
+      ));
+      searchCache = snap.docs.map(toPost);
+    } catch (e) {
+      console.error(e);
+      els.searchHint.textContent = '検索できませんでした。';
+      return;
+    }
+  }
+
+  /* 検索中に入力が変わっていたら、新しい方を優先する */
+  if (els.searchInput.value.trim().toLowerCase() !== q) { return; }
+
+  const hits = searchCache.filter((p) =>
     p.text.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)
   );
 
@@ -880,8 +967,12 @@ function bindSettings() {
   });
 
   els.clearData.addEventListener('click', () => {
-    if (!confirm('投稿・通知・プロフィールをすべて削除します。よろしいですか？')) { return; }
-    [KEY_POSTS, KEY_NOTICES, KEY_PROFILE, KEY_PREFS, KEY_SEEDED].forEach((k) => {
+    const msg = 'この端末に保存されている表示名・通知・設定を削除します。'
+      + String.fromCharCode(10) + '投稿したアイデアは消えません。'
+      + String.fromCharCode(10, 10) + 'よろしいですか？';
+    if (!confirm(msg)) { return; }
+
+    [KEY_NOTICES, KEY_PROFILE, KEY_PREFS, KEY_REPORTS].forEach((k) => {
       try { localStorage.removeItem(k); } catch (e) { /* noop */ }
     });
     location.reload();
@@ -911,3 +1002,43 @@ function applyPrefs() {
   els.toggleAds.checked = prefs.showAds;
   els.adRail.hidden = !prefs.showAds;
 }
+
+/* ================= 動作確認用 =================
+   ブラウザの開発者コンソールで seedIdeas() と打つと、
+   ダミーのアイデアをまとめて投稿できる。
+   ※ 投稿者は実行した人のUIDになるため、これらは
+     「自分の投稿」として表示される。他人の投稿として
+     試したいときは、別のブラウザ（シークレットウィンドウ）
+     から実行すること。                                    */
+window.seedIdeas = async function () {
+  const samples = [
+    '最強のローカルLLMほしいです',
+    '誰かUnrealのを日本語表記にするやつ作ってくれ',
+    'Discordの通知をまとめて要約してくれるBotがほしい',
+    'Gitのコミットメッセージを自動で日本語にするCLIツール',
+    'スマホで撮ったホワイトボードの写真を、きれいなMarkdownに変換するアプリ',
+    '積みゲー管理アプリ。積んだ日数とクリア率が見えると罪悪感で進むと思う。',
+    'ドット絵を1枚描いたら、歩行アニメのコマを自動生成してくれるやつ',
+    '個人開発の進捗を晒すだけのSNSが欲しい',
+    'タブが増えすぎたときに自動でグループ分けしてくれるブラウザ拡張',
+    'レシートを撮るだけで全部入力してくれる家計簿アプリ'
+  ];
+
+  if (!fb || !myUid) { console.warn('まだ接続できていません'); return; }
+
+  for (const text of samples) {
+    await fb.addDoc(fb.collection(fb.db, 'ideas'), {
+      authorUid:   myUid,
+      authorName:  profile.name || 'name',
+      authorColor: profile.color,
+      text:        text,
+      createdAt:   fb.serverTimestamp(),
+      likeBy:      [],
+      doneBy:      [],
+      devBy:       []
+    });
+  }
+
+  console.log(samples.length + ' 件のダミー投稿を作成しました');
+  reloadFeed();
+};

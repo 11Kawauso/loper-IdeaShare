@@ -117,8 +117,9 @@
 
         <div class="panel panel-danger">
           <h3 class="panel-title">データ</h3>
-          <p class="panel-note">投稿・通知・プロフィールはこの端末のブラウザ内にのみ保存されます。</p>
-          <button type="button" class="btn btn-danger" id="clearData">すべてのデータを削除</button>
+          <p class="panel-note">アイデアの投稿はサーバーに保存され、全員に共有されます。<br>
+            表示名・通知・広告の設定は、この端末のブラウザ内にのみ保存されます。</p>
+          <button type="button" class="btn btn-danger" id="clearData">この端末の設定を削除</button>
         </div>
       </section>
 
@@ -150,6 +151,52 @@
   <button type="button" class="mnav-item" data-view="notice">通知</button>
   <button type="button" class="mnav-item" data-view="settings">設定</button>
 </nav>
+
+<!-- ============ Firebase の初期化 ============
+     idea.js は通常のスクリプトなので、ここで読み込んだ機能を
+     window._fb にまとめて渡し、準備できたことを知らせる。 -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+  import {
+    getFirestore, collection, doc, addDoc, deleteDoc, updateDoc,
+    getDocs, query, orderBy, limit, startAfter,
+    serverTimestamp, arrayUnion, arrayRemove
+  } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+  /* ▼▼▼ Firebaseコンソールで作ったプロジェクトの設定をここに貼り付ける ▼▼▼
+     （loper 本体とは別のプロジェクトを使う） */
+  const firebaseConfig = {
+    apiKey:            "ここにapiKey",
+    authDomain:        "ここにauthDomain",
+    projectId:         "ここにprojectId",
+    storageBucket:     "ここにstorageBucket",
+    messagingSenderId: "ここにmessagingSenderId",
+    appId:             "ここにappId"
+  };
+  /* ▲▲▲ ここまで ▲▲▲ */
+
+  window._fbConfigured = !firebaseConfig.apiKey.startsWith('ここに');
+
+  if (window._fbConfigured) {
+    try {
+      const app = initializeApp(firebaseConfig);
+      window._fb = {
+        auth: getAuth(app),
+        db: getFirestore(app),
+        signInAnonymously, onAuthStateChanged,
+        collection, doc, addDoc, deleteDoc, updateDoc,
+        getDocs, query, orderBy, limit, startAfter,
+        serverTimestamp, arrayUnion, arrayRemove
+      };
+    } catch (e) {
+      window._fbError = e;
+    }
+  }
+
+  document.dispatchEvent(new Event('firebase-ready'));
+</script>
 
 <script src="idea.js"></script>
 </body>

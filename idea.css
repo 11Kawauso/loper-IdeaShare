@@ -129,6 +129,8 @@ button { background: none; border: none; cursor: pointer; }
 }
 
 .profile-chip:hover { background: rgba(255, 255, 255, 0.07); }
+.profile-chip.is-active { background: rgba(111, 211, 226, 0.13); }
+.profile-chip.is-active .profile-name { color: var(--accent); font-weight: bold; }
 
 .profile-name {
   font-size: 13px;
@@ -157,6 +159,7 @@ button { background: none; border: none; cursor: pointer; }
 }
 
 .avatar-sm { width: 22px; height: 22px; font-size: 10px; }
+.avatar-lg { width: 64px; height: 64px; font-size: 26px; }
 
 /* ================= メイン ================= */
 .main {
@@ -498,6 +501,36 @@ button { background: none; border: none; cursor: pointer; }
 .notice-date { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
 .notice.is-unread { background: rgba(111, 211, 226, 0.06); }
 
+/* ================= プロフィール ================= */
+.profile-preview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 4px 20px;
+  max-width: 480px;
+}
+
+.profile-preview-body { min-width: 0; }
+
+.profile-preview-name {
+  font-size: 17px;
+  font-weight: bold;
+  margin-bottom: 5px;
+  word-break: break-word;
+}
+
+.profile-preview-note {
+  font-size: 12px;
+  color: var(--text-mute);
+  line-height: 1.7;
+}
+
+.profile-save {
+  display: flex;
+  align-items: center;
+  max-width: 480px;
+}
+
 /* ================= 設定 ================= */
 .panel {
   border: 1px solid var(--line-soft);
@@ -670,4 +703,5 @@ button { background: none; border: none; cursor: pointer; }
   .mnav-item.is-active { color: var(--accent); font-weight: bold; }
 
   .panel { padding: 14px; }
+  .avatar-lg { width: 52px; height: 52px; font-size: 21px; }
 }

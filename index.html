@@ -26,7 +26,7 @@
         <button type="button" class="nav-item" data-view="settings">設定</button>
       </nav>
 
-      <button type="button" class="profile-chip" data-view="settings">
+      <button type="button" class="profile-chip" data-view="profile">
         <span class="avatar" id="myAvatar">n</span>
         <span class="profile-name" id="myName">name</span>
       </button>
@@ -82,6 +82,40 @@
         <div class="feed" id="searchResults"></div>
       </section>
 
+      <!-- プロフィール -->
+      <section class="view" id="view-profile">
+        <h2 class="view-title">プロフィール</h2>
+
+        <div class="profile-preview">
+          <span class="avatar avatar-lg" id="profileAvatar">n</span>
+          <div class="profile-preview-body">
+            <div class="profile-preview-name" id="profilePreviewName">name</div>
+            <div class="profile-preview-note">アイコンと表示名は、これから投稿するアイデアに使われます。</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3 class="panel-title">表示名</h3>
+          <div class="field">
+            <label for="nameInput">名前（20文字まで）</label>
+            <input type="text" id="nameInput" maxlength="20" placeholder="name">
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3 class="panel-title">アイコン</h3>
+          <div class="field">
+            <span class="field-label">色を選ぶ</span>
+            <div class="swatches" id="swatches"></div>
+          </div>
+        </div>
+
+        <div class="profile-save">
+          <button type="button" class="btn btn-primary" id="saveProfile">保存する</button>
+          <span class="saved-msg" id="savedMsg" hidden>保存しました</span>
+        </div>
+      </section>
+
       <!-- 通知 -->
       <section class="view" id="view-notice">
         <h2 class="view-title">通知</h2>
@@ -91,20 +125,6 @@
       <!-- 設定 -->
       <section class="view" id="view-settings">
         <h2 class="view-title">設定</h2>
-
-        <div class="panel">
-          <h3 class="panel-title">プロフィール</h3>
-          <div class="field">
-            <label for="nameInput">表示名</label>
-            <input type="text" id="nameInput" maxlength="20" placeholder="name">
-          </div>
-          <div class="field">
-            <span class="field-label">アバターの色</span>
-            <div class="swatches" id="swatches"></div>
-          </div>
-          <button type="button" class="btn btn-primary" id="saveProfile">保存する</button>
-          <span class="saved-msg" id="savedMsg" hidden>保存しました</span>
-        </div>
 
         <div class="panel">
           <h3 class="panel-title">表示</h3>

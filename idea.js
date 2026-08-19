@@ -135,6 +135,8 @@ function cacheElements() {
   els.searchHint     = document.getElementById('searchHint');
   els.noticeList     = document.getElementById('noticeList');
   els.noticeBadge    = document.getElementById('noticeBadge');
+  els.profileAvatar  = document.getElementById('profileAvatar');
+  els.profilePreviewName = document.getElementById('profilePreviewName');
   els.nameInput      = document.getElementById('nameInput');
   els.swatches       = document.getElementById('swatches');
   els.saveProfile    = document.getElementById('saveProfile');
@@ -322,10 +324,10 @@ function showView(view, smooth) {
     section.classList.toggle('is-active', section.id === 'view-' + view);
   });
 
-  document.querySelectorAll('.nav-item, .mnav-item').forEach((btn) => {
+  document.querySelectorAll('.nav-item, .mnav-item, .profile-chip').forEach((btn) => {
     const on = btn.dataset.view === view;
     btn.classList.toggle('is-active', on);
-    if (btn.classList.contains('nav-item')) {
+    if (btn.classList.contains('nav-item') || btn.classList.contains('profile-chip')) {
       if (on) { btn.setAttribute('aria-current', 'page'); }
       else    { btn.removeAttribute('aria-current'); }
     }
@@ -979,22 +981,23 @@ function bindSettings() {
   });
 }
 
+/* 入力中の内容を、サイドバー・投稿欄・プロフィール画面に映す */
 function previewProfile() {
-  const name = els.nameInput.value.trim() || 'name';
-  els.myAvatar.textContent = initialOf(name);
-  els.myAvatar.style.background = profile.color;
-  els.composerAvatar.textContent = initialOf(name);
-  els.composerAvatar.style.background = profile.color;
+  paintProfile(els.nameInput.value.trim() || 'name', profile.color);
+}
+
+function paintProfile(name, color) {
+  [els.myAvatar, els.composerAvatar, els.profileAvatar].forEach((el) => {
+    el.textContent = initialOf(name);
+    el.style.background = color;
+  });
   els.myName.textContent = name;
+  els.profilePreviewName.textContent = name;
 }
 
 function applyProfile() {
   els.nameInput.value = profile.name === 'name' ? '' : profile.name;
-  els.myName.textContent = profile.name;
-  els.myAvatar.textContent = initialOf(profile.name);
-  els.myAvatar.style.background = profile.color;
-  els.composerAvatar.textContent = initialOf(profile.name);
-  els.composerAvatar.style.background = profile.color;
+  paintProfile(profile.name, profile.color);
   highlightSwatch();
 }
 

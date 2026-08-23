@@ -478,38 +478,51 @@ button { background: none; border: none; cursor: pointer; }
 .legend-dot.like { background-color: var(--like); background-image: var(--icon-like); }
 
 /* ================= loper への誘い =================
-   「開発中」を押した直後に、その投稿の下へ一行出す。
-   操作を止めないよう、控えめな見た目にしている。      */
-.loper-invite {
+   「開発中」を押した直後に、画面右下からスッと出して
+   しばらくしたら勝手に消す。操作は止めない。         */
+.loper-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 50;
+  width: 340px;
+  max-width: calc(100vw - 40px);
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin: 10px 2px 2px;
-  padding: 10px 14px;
+  padding: 13px 16px;
+  background: #12263d;
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  background: rgba(214, 198, 44, 0.06);
-  animation: fade 0.2s ease;
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+
+  /* 右外に置いておき、is-open が付いたら滑り込ませる */
+  transform: translateX(calc(100% + 32px));
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
-.loper-invite .nav-dot { margin-top: 4px; }
+.loper-toast.is-open { transform: translateX(0); opacity: 1; }
 
-.loper-invite-head {
-  font-size: 12px;
+.loper-toast .nav-dot { margin-top: 4px; }
+
+.loper-toast-head {
+  font-size: 13px;
   font-weight: bold;
   color: var(--text);
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
-.loper-invite-line { font-size: 12px; color: var(--text-mute); }
+.loper-toast-line { font-size: 12px; color: var(--text-dim); line-height: 1.7; }
 
-.loper-invite-line a {
+.loper-toast-line a {
   color: var(--accent);
   font-weight: bold;
   text-decoration: none;
+  white-space: nowrap;
 }
 
-.loper-invite-line a:hover { text-decoration: underline; }
+.loper-toast-line a:hover { text-decoration: underline; }
 
 /* ================= 無限スクロールの末尾 ================= */
 .feed-end {
@@ -794,5 +807,13 @@ button { background: none; border: none; cursor: pointer; }
   .mnav-item.is-active { color: var(--accent); font-weight: bold; }
 
   .panel { padding: 14px; }
+
+  .loper-toast {
+    right: 12px;
+    left: 12px;
+    bottom: 62px;   /* ボトムナビの上 */
+    width: auto;
+    max-width: none;
+  }
   .avatar-lg { width: 52px; height: 52px; font-size: 21px; }
 }

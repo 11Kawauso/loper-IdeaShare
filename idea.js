@@ -25,6 +25,8 @@ const KEY_INVITED = 'loper_invited';
    loper 側で選んでもらう）。 */
 const LOPER_URL   = 'https://11kawauso.github.io/loper/';
 const LOPER_TITLE_MAX = 30;
+/* 右下の誘いを出しておく時間（ミリ秒） */
+const TOAST_MS = 9000;
 const LOPER_DESC_MAX  = 500;
 const MAX_TEXT    = 300;
 
@@ -704,7 +706,7 @@ function createPost(post) {
   const actions = document.createElement('div');
   actions.className = 'post-actions';
 
-  addReactCounters(actions, post, card);
+  addReactCounters(actions, post);
 
   card.appendChild(actions);
 
@@ -713,7 +715,7 @@ function createPost(post) {
 
 /* 完成・開発中・いいねの3つを actions に入れる。
    自分の投稿は自分で押せてしまうため、数字を見るだけの表示にする。 */
-function addReactCounters(actions, post, card) {
+function addReactCounters(actions, post) {
   if (post.mine) {
     actions.appendChild(makeReact('done', post.done, false, '完成した数', false));
     actions.appendChild(makeReact('dev',  post.dev,  false, '開発中の数', false));
@@ -775,7 +777,7 @@ function addReactCounters(actions, post, card) {
 
     /* 「開発中」は相手に通知しない。
        代わりに、loper で仲間を募集する誘いをその場に出す。 */
-    if (post.myDev) { showLoperInvite(post, card); }
+    if (post.myDev) { showLoperToast(post); }
   });
 
   /* いいねは完成・開発中とは独立して押せる */
@@ -1032,13 +1034,23 @@ function rememberInvited(id) {
   write(KEY_INVITED, list.slice(0, 200));
 }
 
-function showLoperInvite(post, card) {
-  if (!card || alreadyInvited(post.id)) { return; }
-  if (card.querySelector('.loper-invite')) { return; }
+/* 画面右下に出す。表示は1つだけで、しばらくすると勝手に消える。
+   読んでいる・押そうとしている最中に消えないよう、
+   カーソルを乗せている間は時間を止める。                    */
+let toastTimer = null;
+
+function showLoperToast(post) {
+  if (alreadyInvited(post.id)) { return; }
   rememberInvited(post.id);
 
+  /* 前のものが残っていれば片付ける */
+  const old = document.querySelector('.loper-toast');
+  if (old) { old.remove(); }
+  clearTimeout(toastTimer);
+
   const box = document.createElement('div');
-  box.className = 'loper-invite';
+  box.className = 'loper-toast';
+  box.setAttribute('role', 'status');
 
   const dot = document.createElement('span');
   dot.className = 'nav-dot dev';
@@ -1047,12 +1059,12 @@ function showLoperInvite(post, card) {
   const body = document.createElement('div');
 
   const head = document.createElement('div');
-  head.className = 'loper-invite-head';
+  head.className = 'loper-toast-head';
   head.textContent = '開発中にしました';
   body.appendChild(head);
 
   const line = document.createElement('div');
-  line.className = 'loper-invite-line';
+  line.className = 'loper-toast-line';
   line.appendChild(document.createTextNode('一人では大変ですか？ '));
 
   const link = document.createElement('a');
@@ -1064,17 +1076,27 @@ function showLoperInvite(post, card) {
   body.appendChild(line);
 
   box.appendChild(body);
-  card.appendChild(box);
+  document.body.appendChild(box);
 
-  /* スクロールしたら消す（閉じるボタンは置かない）。
-     押した直後の勢いで消えないよう、少し待ってから見張る。 */
-  setTimeout(() => {
-    const remove = () => {
-      box.remove();
-      window.removeEventListener('scroll', remove);
-    };
-    window.addEventListener('scroll', remove, { passive: true, once: true });
-  }, 900);
+  /* 追加した直後に付けると滑り込みが起きないので、一拍置く */
+  setTimeout(() => box.classList.add('is-open'), 20);
+
+  const hide = () => {
+    box.classList.remove('is-open');
+    setTimeout(() => box.remove(), 400);
+  };
+
+  const startTimer = () => {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hide, TOAST_MS);
+  };
+
+  box.addEventListener('mouseenter', () => clearTimeout(toastTimer));
+  box.addEventListener('mouseleave', startTimer);
+  /* リンクを押したら役目は終わり */
+  link.addEventListener('click', hide);
+
+  startTimer();
 }
 
 /* ================= 反応した投稿の一覧 =================

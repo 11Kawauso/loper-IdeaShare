@@ -17,6 +17,15 @@
 
 const KEY_PROFILE = 'loper_profile';
 const KEY_REPORTS = 'loper_reports';
+/* loperへの誘いを出した投稿（同じアイデアでは一度きりにするため） */
+const KEY_INVITED = 'loper_invited';
+
+/* loper 本体の投稿フォームは ?title=...&desc=... を受け取る。
+   category は送らない（IdeaShare にカテゴリの情報がないため、
+   loper 側で選んでもらう）。 */
+const LOPER_URL   = 'https://11kawauso.github.io/loper/';
+const LOPER_TITLE_MAX = 30;
+const LOPER_DESC_MAX  = 500;
 const MAX_TEXT    = 300;
 
 /* 無限スクロールで一度に読み込む件数と、
@@ -90,6 +99,7 @@ function start() {
   bindSettings();
   bindPostMenuDismiss();
   els.userBack.addEventListener('click', () => showView(backView));
+  els.ideaBack.addEventListener('click', () => showView('home'));
   applyProfile();
   renderNotices();
   setupInfiniteScroll();
@@ -120,6 +130,7 @@ function connect() {
     myUid = user.uid;
     reloadFeed();
     loadNotices();
+    openIdeaFromUrl();
   });
 
   fb.signInAnonymously(fb.auth).catch((e) => {
@@ -150,6 +161,8 @@ function cacheElements() {
   els.devHint        = document.getElementById('devHint');
   els.doneFeed       = document.getElementById('doneFeed');
   els.doneHint       = document.getElementById('doneHint');
+  els.ideaBack       = document.getElementById('ideaBack');
+  els.ideaFeed       = document.getElementById('ideaFeed');
   els.userBack       = document.getElementById('userBack');
   els.userAvatar     = document.getElementById('userAvatar');
   els.userName       = document.getElementById('userName');
@@ -691,7 +704,7 @@ function createPost(post) {
   const actions = document.createElement('div');
   actions.className = 'post-actions';
 
-  addReactCounters(actions, post);
+  addReactCounters(actions, post, card);
 
   card.appendChild(actions);
 
@@ -700,7 +713,7 @@ function createPost(post) {
 
 /* 完成・開発中・いいねの3つを actions に入れる。
    自分の投稿は自分で押せてしまうため、数字を見るだけの表示にする。 */
-function addReactCounters(actions, post) {
+function addReactCounters(actions, post, card) {
   if (post.mine) {
     actions.appendChild(makeReact('done', post.done, false, '完成した数', false));
     actions.appendChild(makeReact('dev',  post.dev,  false, '開発中の数', false));
@@ -760,7 +773,9 @@ function addReactCounters(actions, post) {
     redraw();
     saveReaction(post, changes, redraw, backup);
 
-    /* 「開発中」は相手に通知しない */
+    /* 「開発中」は相手に通知しない。
+       代わりに、loper で仲間を募集する誘いをその場に出す。 */
+    if (post.myDev) { showLoperInvite(post, card); }
   });
 
   /* いいねは完成・開発中とは独立して押せる */
@@ -934,6 +949,132 @@ async function runSearch() {
 
   els.searchHint.textContent = hits.length + ' 件見つかりました。';
   paintPosts(els.searchResults, hits, '一致する投稿はありません。');
+}
+
+/* ================= 単体のアイデア =================
+   ?idea=<FirestoreのドキュメントID> で1件だけ開く。
+   loper の募集から「元のアイデア」を辿るときや、
+   アイデア単体を人に見せるときに使う。              */
+
+/* そのアイデアを指す URL を組み立てる */
+function ideaUrl(id) {
+  return location.origin + location.pathname + '?idea=' + encodeURIComponent(id);
+}
+
+function openIdeaFromUrl() {
+  let id = null;
+  try {
+    id = new URLSearchParams(location.search).get('idea');
+  } catch (e) { return; }
+
+  if (!id) { return; }
+  openIdeaById(id);
+}
+
+async function openIdeaById(id) {
+  if (!fb || !myUid) { return; }
+
+  els.ideaFeed.innerHTML = '';
+  showView('idea');
+
+  const msg = document.createElement('div');
+  msg.className = 'empty';
+  msg.textContent = '読み込み中…';
+  els.ideaFeed.appendChild(msg);
+
+  try {
+    const snap = await fb.getDoc(fb.doc(fb.db, 'ideas', id));
+
+    if (!snap.exists()) {
+      msg.textContent = 'このアイデアは見つかりませんでした。' + String.fromCharCode(10) + '削除された可能性があります。';
+      msg.style.whiteSpace = 'pre-line';
+      return;
+    }
+
+    els.ideaFeed.innerHTML = '';
+    els.ideaFeed.appendChild(createPost(toPost(snap)));
+  } catch (e) {
+    console.error(e);
+    msg.textContent = 'アイデアを読み込めませんでした。';
+  }
+}
+
+/* ================= loper への誘い =================
+   「開発中」を押した直後にだけ、その投稿の下へ一行出す。
+   モーダルにはしない（開発中に切り替えたいだけの人の邪魔になるため）。
+   スクロールすれば消え、同じアイデアでは一度きり。            */
+
+/* 本文の1行目を、loper のタイトルとして使える形に整える */
+function ideaTitle(text) {
+  const first = (text.split(String.fromCharCode(10))[0] || '').trim() || text.trim();
+  return first.length > LOPER_TITLE_MAX
+    ? first.slice(0, LOPER_TITLE_MAX - 1) + '…'
+    : first;
+}
+
+/* loper の募集フォームを開く URL を組み立てる */
+function loperRecruitUrl(post) {
+  const desc = (post.text + String.fromCharCode(10, 10) +
+                '元のアイデア: ' + ideaUrl(post.id)).slice(0, LOPER_DESC_MAX);
+
+  return LOPER_URL + '?title=' + encodeURIComponent(ideaTitle(post.text)) +
+         '&desc=' + encodeURIComponent(desc);
+}
+
+/* 同じアイデアで二度目を出さないよう、出した投稿を覚えておく */
+function alreadyInvited(id) {
+  return read(KEY_INVITED, []).indexOf(id) !== -1;
+}
+
+function rememberInvited(id) {
+  const list = read(KEY_INVITED, []);
+  list.unshift(id);
+  write(KEY_INVITED, list.slice(0, 200));
+}
+
+function showLoperInvite(post, card) {
+  if (!card || alreadyInvited(post.id)) { return; }
+  if (card.querySelector('.loper-invite')) { return; }
+  rememberInvited(post.id);
+
+  const box = document.createElement('div');
+  box.className = 'loper-invite';
+
+  const dot = document.createElement('span');
+  dot.className = 'nav-dot dev';
+  box.appendChild(dot);
+
+  const body = document.createElement('div');
+
+  const head = document.createElement('div');
+  head.className = 'loper-invite-head';
+  head.textContent = '開発中にしました';
+  body.appendChild(head);
+
+  const line = document.createElement('div');
+  line.className = 'loper-invite-line';
+  line.appendChild(document.createTextNode('一人では大変ですか？ '));
+
+  const link = document.createElement('a');
+  link.href = loperRecruitUrl(post);
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.textContent = 'loperで仲間を募集する →';
+  line.appendChild(link);
+  body.appendChild(line);
+
+  box.appendChild(body);
+  card.appendChild(box);
+
+  /* スクロールしたら消す（閉じるボタンは置かない）。
+     押した直後の勢いで消えないよう、少し待ってから見張る。 */
+  setTimeout(() => {
+    const remove = () => {
+      box.remove();
+      window.removeEventListener('scroll', remove);
+    };
+    window.addEventListener('scroll', remove, { passive: true, once: true });
+  }, 900);
 }
 
 /* ================= 反応した投稿の一覧 =================
